@@ -434,7 +434,7 @@ class ToolBox:
         return ToolResult(True, {"confirmed": state.hold.offer.label})
 
     def release_hold(self) -> None:
-        """Called by the state machine when an Emergency or Urgent Case ends scheduling. A failed
+        """Called by the state machine when any Escalation ends scheduling. A failed
         release is not fatal: the Hold then expires on its own."""
         hold = self._state.hold
         if hold is not None:

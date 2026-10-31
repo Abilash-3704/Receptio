@@ -22,6 +22,20 @@ baseline.
 
 ## Entries
 
+### 2026-10-31  Hold released on any Escalation; "yes, cancel it" accepted
+- Change: (1) any Escalation, not only an Emergency or Urgent Case, now releases an in-progress
+  Hold through the existing release path, as soon as the Escalation starts (also while a Callback
+  Request is still waiting for a number). (2) The cancel read-back accepts an affirmative plus the
+  word "cancel" and filler ("yes, cancel it", "yes please cancel it", "yes cancel", "yes go ahead
+  and cancel"); the booking read-back accepts "book" the same way ("yes, book it"). The action word
+  must match the read-back asked, and any other word ("but", "not", "actually", "no", a question
+  mark) still refuses. Code in `agent/text_mode.py`; the prompt is unchanged.
+- Eval result: not evaluated against a real model. Scripted suite: 102 core scenarios pass
+  (`probe_yes_cancel_it_015` graduated from known gap; `human_requested_mid_booking_015` now
+  expects release with no lapse); baseline `scenarios` 101 to 102, no metric value changed.
+- Decision: kept. Follow-up: watch real-model runs for hedges phrased outside the allowlist, which
+  are refused (one extra question) by design, ADR-0001.
+
 ### 2026-10-31  Prompt: untrusted input, off-topic and angry Callers  (c8baf1e)
 - Change: added the rules that Caller speech is untrusted, that instructions are never revealed,
   that off-topic chat gets one or two polite redirects, that angry Callers get a calm and brief

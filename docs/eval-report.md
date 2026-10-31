@@ -63,13 +63,13 @@ Scripted LLM, scripted Caller, run on 2026-10-31 at the commit that introduced t
 
 | Metric | Value | n | Target |
 |---|---|---|---|
-| Task completion rate | 100.0% | 101/101 | >= 90% |
-| Wrong-time or overlapping-Appointment rate | 0.0% | 0/101 | 0% |
+| Task completion rate | 100.0% | 102/102 | >= 90% |
+| Wrong-time or overlapping-Appointment rate | 0.0% | 0/102 | 0% |
 | Emergency recall | 100.0% | 22/22 | 100% |
-| Emergency false-positive rate | 0.0% | 0/67 | tracked |
+| Emergency false-positive rate | 0.0% | 0/68 | tracked |
 | Urgent Case recall | 100.0% | 12/12 | >= 95% |
-| Urgent Case false-positive rate | 0.0% | 0/67 | tracked |
-| Escalation rate | 40.6% | 41/101 | tracked |
+| Urgent Case false-positive rate | 0.0% | 0/68 | tracked |
+| Escalation rate | 40.2% | 41/102 | tracked |
 | Cost per Call | not measured | | tracked (no LLM called) |
 | Latency p50 / p95 | not measured | | voice only (ticket 16) |
 
@@ -80,7 +80,7 @@ detector is not narrower than one author's phrasing.
 
 ## The suite
 
-114 scenarios: 101 core (counted in the targets) and 13 known-gap probes (reported apart). The
+114 scenarios: 102 core (counted in the targets) and 12 known-gap probes (reported apart). The
 range in the spec is 50 to 100; the suite is over it by 14, each scenario testing a distinct
 behaviour (see the table). If cost per simulated run matters more than breadth, prune the
 `negative_*` false-positive checks first (18 core, mostly one phrase each).
@@ -99,7 +99,7 @@ behaviour (see the table). If cost per simulated run matters more than breadth, 
 | Urgent Cases | 12 | 6 |
 | Injection | 6 | 0 |
 | Silence or dropped Call | 2 | 0 |
-| Identification, cancel, reschedule | 6 | 1 |
+| Identification, cancel, reschedule | 7 | 0 |
 | FAQ | 6 | 0 |
 | Escalation | 2 | 1 |
 | Unusual names | 1 | 0 |
@@ -153,7 +153,6 @@ fails today by design; a fix should turn the scenario green, then drop `known_ga
 | `probe_negative_choking_up`, `probe_negative_past_heart_attack` | not an emergency | detector raises an Emergency (false positive) |
 | `probe_urgent_scream`, `probe_urgent_botched_filling`, `probe_urgent_tooth_hanging_015`, `probe_urgent_filling_fell_out_throbbing_015`, `probe_urgent_cheek_golf_ball_015`, `probe_urgent_jagged_crown_cutting_tongue_015` | Urgent Case | detector misses it |
 | `probe_human_request_paraphrase_015` | asks for a person ("is there anyone at the clinic I can talk to?") | no Handoff, the LLM is consulted |
-| `probe_yes_cancel_it_015` | a plain "Yes, cancel it" to the cancel read-back | not accepted as a yes; the Caller is asked again (safe, one extra question) |
 
 Independent-phrasing results in short (phrasings written for this ticket before reading
 `agent/safety.py`): all 5 Emergency phrasings were caught (4 kept, one dropped as redundant with an
@@ -168,11 +167,15 @@ complete.
   clock while the backend ran on the fixed start, so relative times ("tomorrow", "Tuesday")
   resolved against two different days. Fixed: the harness now yields the one shared clock; the
   scenario's `now` finally applies to the agent. Test: `tests/test_scripted_gate.py`.
-- **A Handoff mid-booking leaves the Hold live until it expires** (5 minutes). Only an Emergency or
-  Urgent Case releases it. `human_requested_mid_booking_015` therefore expects the Hold to lapse by
-  itself rather than be released. Not changed here; say if you want release-on-escalation.
-- **"Yes, cancel it" is not an explicit yes** (probe above). Safe by design, but a likely friction
-  point with real Callers.
+- **A Handoff mid-booking used to leave the Hold live until it expired** (5 minutes). Changed by
+  the human's decision: any Escalation, Handoff or Callback Request, releases an in-progress Hold.
+  `human_requested_mid_booking_015` now expects the release, with no time passing after the Call
+  so a lapse cannot mask it. Not evaluated against a real model (the release is code, not prompt).
+- **"Yes, cancel it" was not an explicit yes.** Now it is: the cancel read-back accepts an
+  affirmative plus the word "cancel" and filler only ("yes, cancel it", "yes go ahead and
+  cancel"); the booking read-back likewise accepts "book" ("yes, book it"). Hedges and
+  conditionals stay refused. `probe_yes_cancel_it_015` graduated from a known gap to a core
+  scenario (the id keeps its `probe_` prefix to keep the baseline's history readable).
 - Tricky 7's scenario file is named `book_cleaning_happy_path_001`; it is the "booking for my
   mother" scenario. Not renamed, to keep the baseline's history readable.
 
