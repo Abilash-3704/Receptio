@@ -106,6 +106,18 @@ def test_accepting_the_offer_records_a_callback_request_with_the_question(
     assert "call you back" in heard[0]
 
 
+def test_a_plain_yes_to_the_callback_offer_escalates(backend: httpx.Client) -> None:
+    backend.put("/demo/clinic-override", json={"mode": "open"})
+    llm = ScriptedLLM([UseTool("search_faq", {"question": "do you sell toothbrushes"})])
+    call = open_text_call(backend, llm=llm)
+    call.hear("Do you sell electric toothbrushes?")
+
+    call.hear("Yes please")
+
+    [stored] = escalations(backend)
+    assert stored["kind"] == "handoff" and "do you sell toothbrushes" in stored["reason"]
+
+
 def test_declining_the_offer_records_nothing_and_the_call_goes_on(
     backend: httpx.Client,
 ) -> None:

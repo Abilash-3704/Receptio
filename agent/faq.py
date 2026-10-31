@@ -47,17 +47,18 @@ def asks_for_medical_advice(text: str) -> bool:
 
 
 _NEGATIVE = re.compile(r"\b(no|not|dont|nope|nah|never|cancel)\b")
-_YES = re.compile(r"^(yes|yeah|yep|yup|sure|ok|okay|please|alright|definitely)\b")
 _CALL_ME = re.compile(r"\b(call|ring|phone) me\b|\bcall back\b|\bcallback\b|\bring me\b")
 
 
 def accepts_callback(text: str) -> bool:
-    """Did the Caller take the offer of a staff callback? A wrong yes here only records a
-    Callback Request staff can discard, so this is looser than the read-back yes."""
+    """Did the Caller ask for the staff callback in so many words ("yes, call me back")? A bare
+    "yes" is handled by the state machine's explicit-yes path; "yes, tomorrow then" is neither."""
     plain = _plain(text)
-    if _NEGATIVE.search(plain):
-        return False
-    return bool(_YES.search(plain) or _CALL_ME.search(plain))
+    return not _NEGATIVE.search(plain) and bool(_CALL_ME.search(plain))
+
+
+def declines_callback(text: str) -> bool:
+    return bool(_NEGATIVE.search(_plain(text)))
 
 
 AMOUNT = re.compile(

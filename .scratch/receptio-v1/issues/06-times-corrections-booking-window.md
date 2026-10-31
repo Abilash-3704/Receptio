@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] Relative and ambiguous times resolve correctly in `Asia/Kolkata`, including across a day boundary
-- [ ] A correction releases the previous Hold before a new one is placed
-- [ ] A preferred Provider is used when available, and the agent does not force a choice otherwise
-- [ ] Times outside the booking window or Clinic Hours are never offered
-- [ ] A request sooner than 2 hours is offered a Callback Request
-- [ ] Scenarios cover correction, ambiguous time, out-of-window and no-Availability cases
+- [x] Relative and ambiguous times resolve correctly in `Asia/Kolkata`, including across a day boundary
+- [x] A correction releases the previous Hold before a new one is placed
+- [x] A preferred Provider is used when available, and the agent does not force a choice otherwise
+- [x] Times outside the booking window or Clinic Hours are never offered
+- [x] A request sooner than 2 hours is offered a Callback Request
+- [x] Scenarios cover correction, ambiguous time, out-of-window and no-Availability cases

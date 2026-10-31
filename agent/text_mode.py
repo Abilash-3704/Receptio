@@ -27,12 +27,14 @@ from agent.faq import (
     MEDICAL_SPEECH,
     accepts_callback,
     asks_for_medical_advice,
+    declines_callback,
     known_clock_times,
     unknown_amounts,
 )
 from agent.llm import LLM, LLMTurn, Message, Say
 from agent.time_guard import unoffered_times
 from agent.tools import TOOL_SPECS, ToolBox, ToolCall
+from backend.app.clock import Clock, system_clock
 
 DISCLOSURE = (
     "Hello, you've reached the clinic's receptionist. I'm an AI assistant, "
@@ -69,14 +71,20 @@ def is_explicit_yes(text: str) -> bool:
 
 
 class TextCall:
-    def __init__(self, backend: httpx.Client, call_id: int, llm: LLM | None = None) -> None:
+    def __init__(
+        self,
+        backend: httpx.Client,
+        call_id: int,
+        llm: LLM | None = None,
+        clock: Clock = system_clock,
+    ) -> None:
         self._backend = backend
         self.call_id = call_id
         self._llm = llm
         self.transcript: list[Turn] = []
         self.tool_calls: list[ToolCall] = []
         self._state = CallState()
-        self._tools = ToolBox(backend, call_id, self._state)
+        self._tools = ToolBox(backend, call_id, self._state, clock)
         self._messages: list[Message] = []
 
     def say(self, speaker: str, text: str) -> None:
@@ -97,17 +105,30 @@ class TextCall:
             return self._take_callback_number(caller_text)
         if asks_for_human(caller_text):
             return self._escalate(HUMAN_REASON)
-        offered_reason, self._state.callback_offer_reason = self._state.callback_offer_reason, None
-        if offered_reason is not None and accepts_callback(caller_text):
-            return self._escalate(offered_reason)
+        state = self._state
+        if state.callback_offer is not None and not (
+            state.awaiting_read_back_answer or state.pending_date is not None
+        ):
+            if accepts_callback(caller_text):
+                reason, state.callback_offer = state.callback_offer, None
+                return self._escalate(reason)
+            if declines_callback(caller_text):
+                state.callback_offer = None
         if asks_for_medical_advice(caller_text):
-            self._state.callback_offer_reason = MEDICAL_REASON
-            spoken: list[str] = []
-            self._speak(MEDICAL_SPEECH, spoken)
-            return spoken
-        if self._state.awaiting_read_back_answer and is_explicit_yes(caller_text):
-            self._tools.record_read_back_agreement()
-        spoken = []
+            state.callback_offer = MEDICAL_REASON
+            medical: list[str] = []
+            self._speak(MEDICAL_SPEECH, medical)
+            return medical
+        if is_explicit_yes(caller_text):
+            if self._state.awaiting_read_back_answer:
+                self._tools.record_read_back_agreement()
+            elif self._state.pending_date is not None:
+                # The state machine, not the LLM, records that the Caller agreed to this date.
+                self._state.confirmed_dates.add(self._state.pending_date)
+            elif self._state.callback_offer is not None:
+                reason, self._state.callback_offer = self._state.callback_offer, None
+                return self._escalate(reason)
+        spoken: list[str] = []
         for _ in range(MAX_STEPS_PER_TURN):
             step = self._llm.next_step(
                 LLMTurn(self._state.summary(), list(self._messages), TOOL_SPECS)
@@ -194,9 +215,11 @@ class TextCall:
         self._backend.post(f"/calls/{self.call_id}/end").raise_for_status()
 
 
-def open_text_call(backend: httpx.Client, llm: LLM | None = None) -> TextCall:
+def open_text_call(
+    backend: httpx.Client, llm: LLM | None = None, clock: Clock = system_clock
+) -> TextCall:
     response = backend.post("/calls")
     response.raise_for_status()
-    call = TextCall(backend, int(response.json()["id"]), llm)
+    call = TextCall(backend, int(response.json()["id"]), llm, clock)
     call.say("agent", DISCLOSURE)
     return call

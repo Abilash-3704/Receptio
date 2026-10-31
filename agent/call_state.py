@@ -4,9 +4,10 @@ The LLM sees only `summary()`. Facts that matter for correctness (what was offer
 live, whether the Caller agreed to the read-back) are recorded here by code, never by the LLM."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
+from agent.times import say_date
 from backend.app.clock import CLINIC_TZ
 
 
@@ -47,6 +48,14 @@ class CallState:
     # Every start time Availability has returned and the agent offered during this Call.
     ever_offered: set[datetime] = field(default_factory=lambda: set())
     hold: HoldInfo | None = None
+    # A date the agent asked the Caller to agree to aloud, and the dates they have agreed to.
+    pending_date: date | None = None
+    confirmed_dates: set[date] = field(default_factory=lambda: set())
+    # Set when a Hold was lost (expired or taken) before the Caller's yes.
+    hold_lost: str | None = None
+    # Why a Callback Request was offered (the request was sooner than the booking window allows).
+    # Taken up only if the Caller's next answer is a plain yes.
+    callback_offer: str | None = None
     awaiting_read_back_answer: bool = False
     read_back_agreed: bool = False
     appointment_id: int | None = None
@@ -57,9 +66,8 @@ class CallState:
     callback_reason: str | None = None
     number_asks: int = 0
     # FAQ (agent/faq.py): facts looked up this Call, the only prices and clock times the agent may
-    # say besides offered times; and the reason for a Callback Request just offered, awaiting yes.
+    # say besides offered times. (A Callback Request offered by the FAQ shares `callback_offer`.)
     known_facts: list[str] = field(default_factory=lambda: [])
-    callback_offer_reason: str | None = None
 
     def record_outcome(self, step: str, ok: bool) -> int:
         """Count consecutive failures of one step; a success resets it. Returns the count."""
@@ -85,6 +93,11 @@ class CallState:
             "missing": missing,
             "offered": [o.label for o in self.offers],
             "hold": None if self.hold is None else self.hold.offer.label,
+            "hold_lost": self.hold_lost,
+            "callback_offered": self.callback_offer is not None,
+            "date_awaiting_caller_yes": None
+            if self.pending_date is None
+            else say_date(self.pending_date),
             "awaiting_read_back_answer": self.awaiting_read_back_answer,
             "read_back_agreed": self.read_back_agreed,
             "appointment_confirmed": self.appointment_id is not None,
