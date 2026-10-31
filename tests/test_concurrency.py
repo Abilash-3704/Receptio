@@ -162,7 +162,7 @@ def test_concurrent_reschedules_of_one_appointment_confirm_exactly_one(
             read_back_reschedule(backend, hold_id, name=patient)
 
         responses = race(
-            [lambda h=h: confirm_reschedule(backend, h, name=patient) for h in holds]
+            [lambda h=h, p=patient: confirm_reschedule(backend, h, name=p) for h in holds]
         )
 
         assert codes(responses) == [201, 409, 409], start

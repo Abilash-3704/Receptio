@@ -182,6 +182,20 @@ class ToolBox:
         response = self._backend.post(path, headers={"Idempotency-Key": key}, json=json)
         return checked(response).json()
 
+    def _hold_details(self) -> dict[str, str] | None:
+        """The Patient details the backend wants with a Hold's confirm. For a reschedule they are
+        the identified Patient's, taken from call state."""
+        state = self._state
+        if state.rescheduling:
+            if state.identity is None:
+                return None
+            name, phone = state.identity
+        else:
+            name, phone = state.patient_name, state.patient_phone
+        if name is None or phone is None:
+            return None
+        return {"patient_name": name, "patient_phone": phone}
+
     def _release_live_hold(self) -> None:
         """The Caller changed their mind: free the old Hold before a new one is placed."""
         state = self._state
@@ -399,12 +413,11 @@ class ToolBox:
                 {"error": "the Caller has not agreed to the read-back; read it back and wait"},
                 refused=True,
             )
-        # A reschedule Hold keeps the original Patient: the backend takes no details for it.
-        details = (
-            None
-            if state.rescheduling
-            else {"patient_name": state.patient_name, "patient_phone": state.patient_phone}
-        )
+        # A reschedule Hold keeps the original Patient, and the backend still wants that Patient
+        # identified: the details come from call state, never from the LLM.
+        details = self._hold_details()
+        if details is None:
+            return ToolResult(False, {"error": "the Patient's name and phone are missing"})
         try:
             appointment = self._post(
                 f"/holds/{state.hold.id}/confirm", self._key("confirm"), details
@@ -437,7 +450,9 @@ class ToolBox:
         state = self._state
         assert state.hold is not None
         try:
-            self._post(f"/holds/{state.hold.id}/read-back", self._key("read-back"))
+            # Only a reschedule Hold's read-back carries the identified Patient's details.
+            details = self._hold_details() if state.rescheduling else None
+            self._post(f"/holds/{state.hold.id}/read-back", self._key("read-back"), details)
         except BackendError as exc:
             if exc.status != 409:
                 raise
