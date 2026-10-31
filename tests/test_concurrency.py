@@ -181,7 +181,7 @@ def test_concurrent_turns_of_one_call_all_land_in_order_with_distinct_numbers(
 
         responses = race(
             [
-                lambda n=n: backend.post(
+                lambda n=n, call_id=call_id: backend.post(
                     f"/calls/{call_id}/turns", json={"speaker": "caller", "text": f"turn {n}"}
                 )
                 for n in range(CONTENDERS)

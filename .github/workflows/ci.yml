@@ -36,6 +36,11 @@ jobs:
       - run: uv run ruff format --check agent backend evals loadtest tests voice
       - run: uv run ruff check agent backend evals loadtest tests voice
       - run: uv run pyright
+      # The compose file must stay valid. It refuses to render without BACKEND_SERVICE_TOKEN, so a
+      # placeholder (not a secret; nothing is started) stands in for the value .env provides.
+      - run: docker compose config --quiet
+        env:
+          BACKEND_SERVICE_TOKEN: ci-placeholder-not-a-secret
       # -rs lists skips with reasons; with Postgres up, none should mention TEST_DATABASE_URL.
       - run: uv run pytest -rs
 

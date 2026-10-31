@@ -180,7 +180,13 @@ def test_every_call_and_hold_route_rejects_an_id_outside_the_database_range(
 
 @pytest.mark.parametrize(
     "field",
-    ["asr_final_ms", "llm_first_token_ms", "tts_first_audio_ms", "total_ms", "total_from_speech_end_ms"],
+    [
+        "asr_final_ms",
+        "llm_first_token_ms",
+        "tts_first_audio_ms",
+        "total_ms",
+        "total_from_speech_end_ms",
+    ],
 )
 @pytest.mark.parametrize("bad", [-1, 2**31, 10**30])
 def test_a_turn_timing_outside_a_sane_range_is_rejected_not_a_server_error(

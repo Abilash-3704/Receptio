@@ -19,8 +19,10 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-receptio}:${POSTGRES_PASSWORD:-receptio}@db:5432/${POSTGRES_DB:-receptio}
       DATABASE_CONNECT_TIMEOUT_SECONDS: ${DATABASE_CONNECT_TIMEOUT_SECONDS:-5}
-      # Both are required (no defaults): without them every protected route answers 503.
-      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-}
+      # Both are required (no defaults): without them every protected route answers 503. Compose
+      # refuses to start without the service token; the dashboard password is checked by the
+      # backend itself (the dashboard answers 503 until it is set).
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:?set BACKEND_SERVICE_TOKEN in .env (openssl rand -hex 24)}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
       # Cost guard. CAPS_TEST_MODE is for the local load test only: the backend refuses to start
       # with it while DEPLOYED_ENVIRONMENT is true, so set DEPLOYED_ENVIRONMENT=true when deploying.
@@ -51,7 +53,7 @@ services:
     environment:
       BACKEND_URL: http://backend:8000
       BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
-      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-}
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:?set BACKEND_SERVICE_TOKEN in .env (openssl rand -hex 24)}
     ports:
       - "${AGENT_PORT:-8001}:8001"
     depends_on:
@@ -77,7 +79,7 @@ services:
     environment:
       BACKEND_URL: http://backend:8000
       BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
-      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-}
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:?set BACKEND_SERVICE_TOKEN in .env (openssl rand -hex 24)}
       LIVEKIT_URL: ws://livekit:7880
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}

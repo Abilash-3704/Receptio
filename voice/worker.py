@@ -43,9 +43,9 @@ from agent.anthropic_llm import make_anthropic_llm
 from agent.backend_client import make_backend_client
 from agent.call_limits import CallLimits
 from agent.config import AgentSettings
-from agent.text_mode import DISCLOSURE, open_text_call
+from agent.text_mode import DISCLOSURE
 from backend.app.redaction import install_log_redaction
-from voice.admission import settle_admission
+from voice.admission import open_call_or_explain, settle_admission
 from voice.config import VoiceSettings
 from voice.driver import VoiceTurnDriver, watch_call_limits
 from voice.persist import storing
@@ -134,12 +134,14 @@ async def entrypoint(ctx: JobContext) -> None:
         raise RuntimeError("ANTHROPIC_API_KEY must be set for voice Calls")
     anthropic_key = agent_settings.anthropic_api_key.get_secret_value()
     backend = make_backend_client(agent_settings)
-    call = open_text_call(
+    call = open_call_or_explain(
         backend,
         llm=make_anthropic_llm(agent_settings),
         limits=CallLimits.from_settings(agent_settings),
-        mode="voice",
     )
+    if call is None:  # the backend refused this worker; the reason is logged. No Call to run.
+        backend.close()
+        return
     started = time.monotonic()
     call_over = asyncio.Event()
     # One path: the timing line is logged and stored with the Call, like text-mode Calls.
