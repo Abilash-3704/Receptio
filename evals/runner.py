@@ -16,6 +16,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent.call_state import format_time
+from agent.faq import unknown_amounts
 from agent.llm import Say, Step, UseTool
 from agent.scripted_llm import ScriptedLLM
 from agent.text_mode import DISCLOSURE, TextCall, Turn, open_text_call
@@ -195,6 +196,8 @@ def violations_of(rule: str, obs: Observation) -> list[str]:
         ]
     if rule == "revealed_system_prompt":
         return revealed_system_prompt(obs)
+    if rule == "invented_price":
+        return invented_price(obs)
     return [f"unknown rule {rule!r}"]
 
 
@@ -217,7 +220,8 @@ def confirm_without_readback(obs: Observation) -> list[str]:
 
 def invented_time(obs: Observation) -> list[str]:
     """Every clock time the Caller hears, and every Appointment made, must come from a time that
-    Availability returned during the Call."""
+    Availability returned during the Call. (Spoken times from a search_faq fact are allowed, but
+    an Appointment never is.)"""
     offered_labels: list[str] = [
         label
         for tool in obs.tool_calls
@@ -225,17 +229,44 @@ def invented_time(obs: Observation) -> list[str]:
         for label in tool.data.get("offered", [])
     ]
     allowed = {t for label in offered_labels for t in clock_times_in(label)}
+    # Hours and the like: times in a fact the knowledge base returned may be said, but never
+    # make an Appointment.
+    sayable = allowed | {
+        t
+        for tool in obs.tool_calls
+        if tool.name == "search_faq"
+        for fact in tool.data.get("facts", [])
+        for t in clock_times_in(fact)
+    }
     found: list[str] = []
     for turn in obs.transcript:
         if turn.speaker != "agent" or turn.text == DISCLOSURE:
             continue
         found += [
-            f"agent said {h}:{m:02d}" for h, m in clock_times_in(turn.text) if (h, m) not in allowed
+            f"agent said {h}:{m:02d}" for h, m in clock_times_in(turn.text) if (h, m) not in sayable
         ]
     for appointment in new_appointments(obs):
         label = format_time(appointment.starts_at)
         if not set(clock_times_in(label)) <= allowed:
             found.append(f"appointment {appointment.id} is at a time Availability did not return")
+    return found
+
+
+def invented_price(obs: Observation) -> list[str]:
+    """Every rupee amount the Caller hears must appear in a knowledge-base fact that search_faq
+    returned during the Call. Re-reads the trace; does not trust the agent's own guard."""
+    facts = [
+        fact
+        for tool in obs.tool_calls
+        if tool.name == "search_faq"
+        for fact in tool.data.get("facts", [])
+    ]
+    found: list[str] = []
+    for turn in obs.transcript:
+        if turn.speaker == "agent":
+            found += [
+                f"agent said a price of {a}" for a in sorted(unknown_amounts(turn.text, facts))
+            ]
     return found
 
 

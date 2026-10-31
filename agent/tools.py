@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from agent.call_state import CallState, HoldInfo, Offer
+from agent.faq import NO_ANSWER_REASON, NO_ANSWER_SPEECH
 from agent.llm import ToolSpec
 
 MAX_OFFERS = 3
@@ -21,6 +22,16 @@ TOOL_SPECS = [
             "type": "object",
             "properties": {"service": {"type": "string"}, "date": {"type": "string"}},
             "required": ["service", "date"],
+        },
+    ),
+    ToolSpec(
+        "search_faq",
+        "Look up clinic facts: hours, location, Services, price ranges, insurance accepted. "
+        "The only source for such facts; say only what it returns.",
+        {
+            "type": "object",
+            "properties": {"question": {"type": "string"}},
+            "required": ["question"],
         },
     ),
     ToolSpec(
@@ -153,6 +164,18 @@ class ToolBox:
         self._state.offers = offers[::step][:MAX_OFFERS]
         self._state.ever_offered |= {o.start for o in self._state.offers}
         return ToolResult(True, {"offered": [o.label for o in self._state.offers]})
+
+    def _tool_search_faq(self, question: str) -> ToolResult:
+        entries: list[dict[str, str]] = checked(
+            self._backend.get("/faq", params={"q": question})
+        ).json()
+        if not entries:
+            # Code says it, so the LLM cannot make something up in its place.
+            self._state.callback_offer_reason = NO_ANSWER_REASON.format(question=question[:200])
+            return ToolResult(True, {"found": False}, speak=NO_ANSWER_SPEECH)
+        facts = [e["text"] for e in entries]
+        self._state.known_facts += facts
+        return ToolResult(True, {"found": True, "facts": facts})
 
     def _tool_record_patient(self, name: str, phone: str) -> ToolResult:
         self._state.patient_name = name.strip()

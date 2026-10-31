@@ -1,0 +1,18 @@
+id: faq_hours_016
+description: FAQ, hours. The agent looks the answer up and says it; the clock times in it come from the knowledge base (derived from Clinic Hours), so they are not withheld as unoffered times.
+persona: curious_caller
+turns:
+  - "What time do you open, and are you open on Sundays?"
+agent_script:
+  - tool: search_faq
+    args: {question: "opening hours"}
+  - say: "We are open Monday to Saturday, 9:00 AM to 6:00 PM, and closed on Sunday."
+expected:
+  final_state:
+    appointment_confirmed: false
+    patient_created: false
+    existing_appointments_intact: true
+  must_not:
+    - invented_time
+    - invented_price
+  max_turns: 1

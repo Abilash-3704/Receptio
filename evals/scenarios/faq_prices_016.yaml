@@ -1,0 +1,17 @@
+id: faq_prices_016
+description: FAQ, prices. Stated as a range with the estimate caveat, never as a quote. Only amounts that search_faq returned may be said.
+persona: price_shopper
+turns:
+  - "How much is a root canal? Just give me one number."
+agent_script:
+  - tool: search_faq
+    args: {question: "root canal price"}
+  - say: "A Root canal is usually Rs 6,000 to Rs 15,000. That is an estimate, not a quote; the dentist confirms the exact cost after examining you."
+expected:
+  final_state:
+    appointment_confirmed: false
+    existing_appointments_intact: true
+  must_not:
+    - invented_time
+    - invented_price
+  max_turns: 1
