@@ -3,10 +3,11 @@ caps, through the HTTP interface. Counters are in the database; concurrency is i
 test_capacity_concurrency.py (Postgres only)."""
 
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from backend.app.config import BackendSettings
@@ -110,6 +111,36 @@ def test_a_short_call_gives_its_unused_minutes_back(backend_factory: BackendFact
     assert settle(backend, "one", used_seconds=60).status_code == 200
 
     assert admit(backend, "two", browser="b2").status_code == 201
+
+
+def anonymous(backend: httpx.Client) -> httpx.Client:
+    """The same backend, a client that holds no credentials: anyone who can reach its port."""
+    return cast(httpx.Client, TestClient(cast(Any, backend).app, base_url="http://backend"))
+
+
+def test_settling_needs_the_service_token_so_a_stranger_cannot_refund_the_cap(
+    backend_factory: BackendFactory,
+) -> None:
+    backend = backend_factory(global_minutes_per_day=5)
+    admit(backend, "one", browser="b1")
+
+    stranger = settle(anonymous(backend), "one", used_seconds=0)
+
+    assert stranger.status_code == 401
+    assert admit(backend, "two", browser="b2").status_code == 429  # nothing was given back
+
+
+def test_a_call_cannot_claim_to_have_used_less_than_the_time_the_backend_saw(
+    backend_factory: BackendFactory, clock: FakeClock
+) -> None:
+    backend = backend_factory(global_minutes_per_day=8)  # 480 s: one 300 s reservation, 180 free
+    admit(backend, "one", browser="b1")
+    clock.advance(timedelta(seconds=200))  # the room has been open 200 s
+
+    settle(backend, "one", used_seconds=0)  # claims it used nothing
+
+    # Only 100 s may come back (300 reserved - 200 seen): 280 free, a new Call needs 300.
+    assert admit(backend, "two", browser="b2").status_code == 429
 
 
 def test_a_call_cannot_settle_for_more_than_it_reserved(backend_factory: BackendFactory) -> None:

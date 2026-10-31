@@ -24,7 +24,6 @@ PUBLIC = {
     # The Caller-facing cost guard: the public token endpoint (voice/web.py) calls these for a
     # visitor who has no credentials. Ticket 13 built them so; ticket 18 leaves them.
     ("POST", "/capacity/admissions"),
-    ("POST", "/capacity/admissions/{room}/settle"),
 }
 
 

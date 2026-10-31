@@ -30,11 +30,11 @@ from backend.app.ratelimit import client_ip
 # Routes that answer without credentials. Keep this list short and justified.
 PUBLIC_ROUTES = {
     ("GET", "/health"),  # liveness probe, no data
-    # The Caller-facing cost guard (ticket 13): the public token endpoint calls these on behalf of
+    # The Caller-facing cost guard (ticket 13): the public token endpoint calls this on behalf of
     # a visitor who has no credentials. Residual risk: anything that can reach the backend can
-    # also consume the daily caps, so do not expose the backend port publicly.
+    # also consume the daily caps, so do not expose the backend port publicly. Settlement, which
+    # gives minutes back, is a SERVICE route: a stranger must never be able to refund the cap.
     ("POST", "/capacity/admissions"),
-    ("POST", "/capacity/admissions/{room}/settle"),
 }
 
 # Routes the agent and the voice worker call.
@@ -60,6 +60,7 @@ SERVICE_ROUTES = {
     ("POST", "/calls/{call_id}/turn-timings"),
     ("POST", "/calls/{call_id}/escalations"),
     ("POST", "/calls/{call_id}/end"),
+    ("POST", "/capacity/admissions/{room}/settle"),
 }
 
 STAFF_USER = "staff"

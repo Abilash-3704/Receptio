@@ -679,7 +679,7 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     @app.post("/capacity/admissions/{room}/settle")
     def settle_call(room: Short, body: SettleIn, session: SessionDep) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
-        if not capacity.settle(session, room, body.used_seconds):
+        if not capacity.settle(session, clock(), room, body.used_seconds):
             raise HTTPException(status_code=404, detail="no such admission")
         return {"room": room}
 

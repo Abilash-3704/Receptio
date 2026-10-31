@@ -186,6 +186,7 @@ class CallAdmission(Base):
     day: Mapped[date] = mapped_column(Date)
     reserved_seconds: Mapped[int]
     settled: Mapped[bool] = mapped_column(default=False)
+    admitted_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
 
 
 class CallRecord(Base):

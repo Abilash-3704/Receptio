@@ -89,7 +89,9 @@ def admit(
     day = _day(now)
     reserve = settings.call_max_seconds
     if settings.caps_test_mode:
-        session.add(CallAdmission(room=room, day=day, reserved_seconds=0, settled=False))
+        session.add(CallAdmission(
+                room=room, day=day, reserved_seconds=0, settled=False, admitted_at=now
+            ))
         session.commit()
         return None
     steps = [
@@ -101,14 +103,18 @@ def admit(
         if not _take(session, scope, key, day, amount, limit):
             session.rollback()
             return Refused(reason, REFUSALS[reason].format(n=settings.visitor_calls_per_day))
-    session.add(CallAdmission(room=room, day=day, reserved_seconds=reserve, settled=False))
+    session.add(CallAdmission(
+            room=room, day=day, reserved_seconds=reserve, settled=False, admitted_at=now
+        ))
     session.commit()
     return None
 
 
-def settle(session: Session, room: str, used_seconds: int) -> bool:
+def settle(session: Session, now: datetime, room: str, used_seconds: int) -> bool:
     """Return the minutes a finished Call did not use. False if the room was never admitted.
-    Settling twice returns them once."""
+    Settling twice returns them once. The reported length is a claim: the Call is charged at
+    least the time the backend itself saw pass since admission, and never more than it reserved,
+    so a wrong or dishonest number cannot refund more than the Call really left unused."""
     admission = session.get(CallAdmission, room)
     if admission is None:
         return False
@@ -119,7 +125,12 @@ def settle(session: Session, room: str, used_seconds: int) -> bool:
     )
     first_settlement = closed.rowcount == 1  # pyright: ignore[reportAttributeAccessIssue,reportUnknownMemberType,reportUnknownVariableType]
     if first_settlement and admission.reserved_seconds > 0:
-        refund = max(0, admission.reserved_seconds - max(0, used_seconds))
+        seen = (
+            0
+            if admission.admitted_at is None
+            else max(0, int((now - admission.admitted_at).total_seconds()))
+        )
+        refund = max(0, admission.reserved_seconds - max(0, used_seconds, seen))
         session.execute(
             update(CapacityCounter)
             .where(
