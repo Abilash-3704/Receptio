@@ -169,3 +169,25 @@ def test_concurrent_reschedules_of_one_appointment_confirm_exactly_one(
         assert (
             status_of(backend, original["id"], name=f"Patient {chr(ord('A') + n)}") == "cancelled"
         )
+
+
+def test_concurrent_turns_of_one_call_all_land_in_order_with_distinct_numbers(
+    postgres_backend: httpx.Client,
+) -> None:
+    backend = postgres_backend
+
+    for _ in range(ROUNDS):
+        call_id = backend.post("/calls", json={"mode": "voice"}).json()["id"]
+
+        responses = race(
+            [
+                lambda n=n: backend.post(
+                    f"/calls/{call_id}/turns", json={"speaker": "caller", "text": f"turn {n}"}
+                )
+                for n in range(CONTENDERS)
+            ]
+        )
+
+        assert codes(responses) == [201] * CONTENDERS
+        stored = backend.get(f"/calls/{call_id}").json()["transcript"]
+        assert len(stored) == CONTENDERS

@@ -708,6 +708,9 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         call_id: RowId, turn: TurnIn, session: SessionDep
     ) -> CallOut:
         record = get_call(session, call_id)
+        # Serialise turns of one Call: the next number is read under the Call's row lock, so two
+        # simultaneous turns get distinct, ordered numbers (a no-op on SQLite).
+        session.refresh(record, with_for_update=True)
         if record.status != "open":
             raise HTTPException(status_code=409, detail="call already ended")
         last = session.scalar(select(func.max(CallTurn.seq)).where(CallTurn.call_id == call_id))
