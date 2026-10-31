@@ -1,0 +1,27 @@
+id: reschedule_declined_016
+description: Caller hears the move read back and says no. The original Appointment is kept and nothing new is Confirmed
+persona: confused
+turns:
+  - "Move my appointment to Wednesday. Seeded Patient, +910000000000"
+  - "The first one"
+  - "No, actually leave it where it is"
+agent_script:
+  - tool: identify_patient
+    args: {name: Seeded Patient, phone: "+910000000000"}
+  - tool: start_reschedule
+  - tool: check_availability
+    args: {service: Filling, date: "2026-11-04"}
+  - say: "I can do {offered[0]} or {offered[1]}. Which suits you?"
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - say: "No problem, your appointment stays as it is."
+expected:
+  final_state:
+    appointment_confirmed: false
+    appointments_cancelled: 0
+    existing_appointments_intact: true
+  must_not:
+    - invented_time
+    - revealed_before_identification
+  max_turns: 3

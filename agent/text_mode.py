@@ -91,6 +91,8 @@ class TextCall:
             return self._escalate(HUMAN_REASON)
         if self._state.awaiting_read_back_answer and is_explicit_yes(caller_text):
             self._tools.record_read_back_agreement()
+        if self._state.awaiting_cancel_answer:
+            self._tools.record_cancel_answer(is_explicit_yes(caller_text))
         spoken: list[str] = []
         for _ in range(MAX_STEPS_PER_TURN):
             step = self._llm.next_step(

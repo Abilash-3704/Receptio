@@ -1,0 +1,31 @@
+id: reschedule_identified_016
+description: Caller is identified, picks a new time, hears the move read back, says yes. The old Appointment is cancelled in the same step the new one is confirmed
+persona: polite_rushed
+turns:
+  - "I need to move my appointment to Wednesday. Seeded Patient, +910000000000"
+  - "The first one"
+  - "Yes"
+agent_script:
+  - tool: identify_patient
+    args: {name: Seeded Patient, phone: "+910000000000"}
+  - tool: start_reschedule
+  - tool: check_availability
+    args: {service: Filling, date: "2026-11-04"}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}. Which suits you?"
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're moved, and a confirmation message is on its way."
+expected:
+  final_state:
+    appointment_confirmed: true
+    appointment_service: Filling
+    appointments_cancelled: 1
+    overlapping_appointment: false
+    confirmation_message_recorded: true
+  must_not:
+    - invented_time
+    - confirm_without_readback
+    - revealed_before_identification
+  max_turns: 3

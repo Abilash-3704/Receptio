@@ -37,6 +37,20 @@ class HoldInfo:
     offer: Offer
 
 
+@dataclass(frozen=True)
+class KnownAppointment:
+    """An existing Appointment of an identified Patient. Only exists after identification."""
+
+    id: int
+    service: str
+    provider: str
+    start: datetime
+
+    @property
+    def label(self) -> str:
+        return f"{self.service} on {format_time(self.start)} with {self.provider}"
+
+
 @dataclass
 class CallState:
     service_id: int | None = None
@@ -50,6 +64,16 @@ class CallState:
     awaiting_read_back_answer: bool = False
     read_back_agreed: bool = False
     appointment_id: int | None = None
+    # Identification (ticket 08): the Patient's name and phone as the backend matched them, their
+    # upcoming Appointments, the one in play, and the change waiting for a yes. None of this is
+    # filled before both name and phone match.
+    identity: tuple[str, str] | None = None
+    known_appointments: list[KnownAppointment] = field(default_factory=lambda: [])
+    target: KnownAppointment | None = None
+    rescheduling: bool = False
+    awaiting_cancel_answer: bool = False
+    cancel_agreed: bool = False
+    appointment_cancelled: bool = False
     # Escalation (agent/escalation.py): failed attempts in a row per step, whether the Call has
     # been passed to staff, and the reason held while waiting for a number to ring back.
     failures: dict[str, int] = field(default_factory=lambda: {})
@@ -84,4 +108,11 @@ class CallState:
             "awaiting_read_back_answer": self.awaiting_read_back_answer,
             "read_back_agreed": self.read_back_agreed,
             "appointment_confirmed": self.appointment_id is not None,
+            "identified": self.identity is not None,
+            "appointments": [a.label for a in self.known_appointments],
+            "selected_appointment": None if self.target is None else self.target.label,
+            "rescheduling": self.rescheduling,
+            "awaiting_cancel_answer": self.awaiting_cancel_answer,
+            "cancel_agreed": self.cancel_agreed,
+            "appointment_cancelled": self.appointment_cancelled,
         }
