@@ -22,7 +22,7 @@ expected:
     patient_created: false
     live_holds: 0
     existing_appointments_intact: true
-    escalation_kind: null
+    escalation_kind: callback_request  # ticket 19: the number given earlier is rung back
     call_outcome: dropped
     call_outcome_reason: "caller left before confirming: Hold read back, no answer"
   must_not:

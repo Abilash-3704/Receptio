@@ -57,5 +57,10 @@ class LLMUsage:
     duration_ms: int
 
 
+class LLMError(Exception):
+    """The LLM provider failed (error, timeout, rate limit). The agent core handles only this: it
+    never sees a provider's own exception types."""
+
+
 class LLM(Protocol):
     def next_step(self, turn: LLMTurn) -> Step: ...
