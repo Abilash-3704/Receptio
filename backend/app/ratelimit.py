@@ -20,6 +20,8 @@ import time
 from collections import deque
 from collections.abc import Callable
 
+from fastapi import Request
+
 
 class SlidingWindowLimiter:
     def __init__(
@@ -90,3 +92,20 @@ class SlidingWindowLimiter:
     def tracked_keys(self) -> int:
         with self._lock:
             return len(self._seen)
+
+
+def client_ip(request: Request, trusted_proxy_hops: int) -> str:
+    """The address a request really came from. The connection's own address, unless
+    `trusted_proxy_hops` says how many reverse proxies of ours append to X-Forwarded-For; then
+    only the entry our outermost proxy added is used, never what the client wrote further left
+    (a client can claim anything there). The same rules for the token endpoint, the cost guard
+    and authentication throttling."""
+    peer = request.client.host if request.client else "unknown"
+    if trusted_proxy_hops <= 0:
+        return peer
+    forwarded = [
+        p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()
+    ]
+    if len(forwarded) < trusted_proxy_hops:
+        return peer  # not what we expect from our own proxies: do not trust it
+    return forwarded[-trusted_proxy_hops]

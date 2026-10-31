@@ -11,6 +11,7 @@ loadtest/standins.py for what is and is not real, and loadtest/real.py for the g
 
 import argparse
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -94,7 +95,11 @@ def standin(args: argparse.Namespace) -> int:
     )
     backend_port, web_port = free_port(), free_port()
     quiet = "1000000"  # the rate limits are off the table: this run is about everything behind them
+    # Throwaway credentials for this run only, never printed or stored.
+    service_token = secrets.token_hex(24)
     backend_env = {
+        "BACKEND_SERVICE_TOKEN": service_token,
+        "DASHBOARD_PASSWORD": secrets.token_hex(24),
         "DATABASE_URL": args.database_url,
         "CAPS_TEST_MODE": "false" if args.caps else "true",
         "DEPLOYED_ENVIRONMENT": "false",
@@ -123,7 +128,12 @@ def standin(args: argparse.Namespace) -> int:
 
         limits = httpx.Limits(max_connections=500, max_keepalive_connections=100)
         backend = stack.enter_context(
-            httpx.Client(base_url=f"http://127.0.0.1:{backend_port}", timeout=60, limits=limits)
+            httpx.Client(
+                base_url=f"http://127.0.0.1:{backend_port}",
+                timeout=60,
+                limits=limits,
+                headers={"X-Service-Token": service_token},
+            )
         )
         web = stack.enter_context(
             httpx.Client(base_url=f"http://127.0.0.1:{web_port}", timeout=60, limits=limits)

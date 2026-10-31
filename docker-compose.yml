@@ -19,6 +19,9 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-receptio}:${POSTGRES_PASSWORD:-receptio}@db:5432/${POSTGRES_DB:-receptio}
       DATABASE_CONNECT_TIMEOUT_SECONDS: ${DATABASE_CONNECT_TIMEOUT_SECONDS:-5}
+      # Both are required (no defaults): without them every protected route answers 503.
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
       # Cost guard. CAPS_TEST_MODE is for the local load test only: the backend refuses to start
       # with it while DEPLOYED_ENVIRONMENT is true, so set DEPLOYED_ENVIRONMENT=true when deploying.
       CALL_MAX_SECONDS: ${CALL_MAX_SECONDS:-300}
@@ -45,6 +48,7 @@ services:
     environment:
       BACKEND_URL: http://backend:8000
       BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-}
     ports:
       - "${AGENT_PORT:-8001}:8001"
     depends_on:
@@ -70,6 +74,7 @@ services:
     environment:
       BACKEND_URL: http://backend:8000
       BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:-}
       LIVEKIT_URL: ws://livekit:7880
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
@@ -108,40 +113,6 @@ services:
       - "${WEB_PORT:-8002}:8002"
     depends_on:
       - backend
-
-volumes:
-      - db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-receptio}"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
-
-  backend:
-    build: .
-    command: ["uvicorn", "backend.app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
-    environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-receptio}:${POSTGRES_PASSWORD:-receptio}@db:5432/${POSTGRES_DB:-receptio}
-      DATABASE_CONNECT_TIMEOUT_SECONDS: ${DATABASE_CONNECT_TIMEOUT_SECONDS:-5}
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-
-  agent:
-    build: .
-    command: ["python", "-m", "agent.main"]
-    environment:
-      BACKEND_URL: http://backend:8000
-      BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
-    ports:
-      - "${AGENT_PORT:-8001}:8001"
-    depends_on:
-      - backend
-
-  # TODO (ticket 12): self-hosted LiveKit server (livekit/livekit-server) for the voice
-  # pipeline. Not needed for text-mode Calls, so it is deliberately absent from the tracer.
 
 volumes:
   db-data:

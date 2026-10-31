@@ -1,15 +1,26 @@
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
 # Passwords that ship in this repository or are the usual guesses. Not a strength check.
 WEAK_DATABASE_PASSWORDS = {"", "receptio", "postgres", "password", "admin", "secret", "changeme"}
 
+# A shorter secret is treated as not set. `openssl rand -hex 24` makes a good one.
+MIN_SECRET_CHARS = 16
+
 
 class BackendSettings(BaseSettings):
     """Clinic backend configuration, read from the environment (see .env.example)."""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # Authentication (backend/app/auth.py). Both come from the environment only: there is no
+    # default, and a secret that is unset, empty or shorter than MIN_SECRET_CHARS counts as not
+    # configured, so the routes it protects answer 503 instead of letting anyone in.
+    # BACKEND_SERVICE_TOKEN is what the agent and voice worker send; DASHBOARD_PASSWORD is the
+    # staff password (user "staff") for the dashboard and every other staff route.
+    backend_service_token: SecretStr | None = None
+    dashboard_password: SecretStr | None = None
 
     database_url: str = "postgresql+psycopg://receptio:receptio@localhost:5432/receptio"
     # Seconds to wait for Postgres to accept a connection.
@@ -49,6 +60,13 @@ class BackendSettings(BaseSettings):
     # Capacity admission requests per client IP per minute. The web service asks once per token
     # request and has its own, lower limit in front, so this is the backstop behind it.
     admission_requests_per_minute_per_ip: int = Field(default=30, ge=1)
+    # Reverse proxies of yours in front of the backend (the same meaning as for the web service):
+    # 0 uses the connection's own address, which is the agent's, not a Caller's.
+    trusted_proxy_hops: int = Field(default=0, ge=0)
+    # Failed authentication (a wrong staff password or service token) per client address within
+    # the window before that address is refused outright. See backend/app/auth.py.
+    auth_failures_per_ip: int = Field(default=10, ge=1)
+    auth_failure_window_seconds: int = Field(default=600, ge=1)
     # Failed identification attempts (name + phone) allowed within the window before further
     # attempts are refused: per name, per phone, and across everyone. See identity_throttle.py.
     identity_failure_window_seconds: int = Field(default=600, ge=1)
@@ -67,6 +85,13 @@ class BackendSettings(BaseSettings):
     alert_min_tool_calls: int = Field(default=10, ge=1)
     alert_dropped_call_rate: float = Field(default=0.5, ge=0, le=1)
     alert_min_calls: int = Field(default=10, ge=1)
+
+    @field_validator("backend_service_token", "dashboard_password", mode="after")
+    @classmethod
+    def _secret_long_enough(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None or len(value.get_secret_value()) < MIN_SECRET_CHARS:
+            return None
+        return value
 
     @model_validator(mode="after")
     def _no_test_mode_when_deployed(self) -> "BackendSettings":

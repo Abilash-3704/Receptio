@@ -31,7 +31,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from livekit import api
 
-from backend.app.ratelimit import SlidingWindowLimiter
+from backend.app.ratelimit import SlidingWindowLimiter, client_ip
+from backend.app.redaction import install_log_redaction
 from voice.admission import admit
 from voice.config import VoiceSettings
 
@@ -43,23 +44,12 @@ RATE_LIMITED_MESSAGE = "Too many requests. Please wait a moment and try again."
 _BROWSER_ID = re.compile(r"[0-9a-f]{32}")
 
 
-def client_ip(request: Request, trusted_proxy_hops: int) -> str:
-    peer = request.client.host if request.client else "unknown"
-    if trusted_proxy_hops <= 0:
-        return peer
-    forwarded = [
-        p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()
-    ]
-    if len(forwarded) < trusted_proxy_hops:
-        return peer  # not what we expect from our own proxies: do not trust it
-    return forwarded[-trusted_proxy_hops]
-
-
 def create_app(
     settings: VoiceSettings | None = None,
     backend: httpx.Client | None = None,
     now: Callable[[], float] = time.monotonic,
 ) -> FastAPI:
+    install_log_redaction()
     settings = settings or VoiceSettings()
     backend = backend or httpx.Client(
         base_url=settings.backend_url, timeout=httpx.Timeout(settings.backend_timeout_seconds)

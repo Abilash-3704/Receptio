@@ -24,6 +24,7 @@ from backend.app.db import (
     Provider,
     Service,
 )
+from backend.app.redaction import remember_name
 from backend.app.scheduling import HOLD_DURATION, blocking_appointments, find_availability
 
 
@@ -43,6 +44,7 @@ def normalise_name(raw: str) -> tuple[str, str]:
         raise reject(422, "patient name must be 1 to 80 characters")
     if not all(unicodedata.category(c)[0] in "LM" or c in NAME_PUNCTUATION for c in name):
         raise reject(422, "patient name may contain only letters, spaces, apostrophes, - and .")
+    remember_name(name)  # from now on it is removed from this process's log output
     return name, name.casefold()
 
 

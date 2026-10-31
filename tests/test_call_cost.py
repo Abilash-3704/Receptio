@@ -20,7 +20,7 @@ from agent.text_mode import open_text_call
 from backend.app.config import BackendSettings
 from backend.app.main import create_app
 from backend.app.trace import load_trace
-from tests.support import START_OF_TEST, FakeClock
+from tests.support import START_OF_TEST, FakeClock, sign_in
 
 Trace = Callable[[int], dict[str, Any]]
 MODEL = "claude-test-1"
@@ -42,6 +42,7 @@ class Stub:
 
 def serve(settings: BackendSettings, clock: FakeClock) -> Iterator[tuple[httpx.Client, Trace]]:
     with TestClient(create_app(settings, clock=clock), base_url="http://backend") as client:
+        sign_in(client)
         factory = cast(Any, client).app.state.session_factory
 
         def read(call_id: int) -> dict[str, Any]:

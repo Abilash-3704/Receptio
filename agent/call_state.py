@@ -95,6 +95,11 @@ class CallState:
     # FAQ (agent/faq.py): facts looked up this Call, the only prices and clock times the agent may
     # say besides offered times. (A Callback Request offered by the FAQ shares `callback_offer`.)
     known_facts: list[str] = field(default_factory=lambda: [])
+    # Failure handling (ticket 19): why help from staff was offered after a failure (the clinic
+    # system or the LLM did not answer, the Caller could not be heard), pending the Caller's
+    # answer; and speech-recognition dropouts in a row.
+    failure_offer: str | None = None
+    asr_dropouts: int = 0
     # Safety layer (agent/safety.py): the highest level the detector has raised in this Call.
     safety_level: str | None = None
 

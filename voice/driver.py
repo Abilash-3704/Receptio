@@ -59,6 +59,12 @@ class VoiceTurnDriver:
     def time_check(self) -> list[str]:
         return self._call.time_check()
 
+    def asr_dropout(self) -> list[str]:
+        return self._call.asr_dropout()
+
+    def speech_failed(self) -> None:
+        self._call.speech_failed()
+
     def end(self) -> None:
         self._call.end()
 

@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app import booking, capacity, clinic_hours, knowledge
+from backend.app import booking, capacity, clinic_hours, dashboard, knowledge
+from backend.app.auth import authenticate
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
 from backend.app.config import BackendSettings
 from backend.app.cost import Prices, call_cost
@@ -32,6 +33,7 @@ from backend.app.idempotency import run_idempotent
 from backend.app.identity_throttle import IdentityThrottle
 from backend.app.migrate import upgrade
 from backend.app.ratelimit import SlidingWindowLimiter
+from backend.app.redaction import install_log_redaction
 from backend.app.scheduling import find_availability
 from backend.app.seed import seed
 
@@ -276,6 +278,7 @@ IdempotencyKey = Annotated[str, Header(min_length=1, max_length=128)]
 
 
 def create_app(settings: BackendSettings | None = None, clock: Clock = system_clock) -> FastAPI:
+    install_log_redaction()
     settings = settings or BackendSettings()
     engine = create_db_engine(settings)
     session_factory = sessionmaker(engine, expire_on_commit=False)
@@ -290,7 +293,19 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     prices = Prices.from_settings(settings)
 
-    app = FastAPI(title="Receptio clinic backend", lifespan=lifespan)
+    # No /docs or /openapi.json: they would list every route to anyone. Every route is checked by
+    # `authenticate` (backend/app/auth.py) unless that module lists it as public.
+    app = FastAPI(
+        title="Receptio clinic backend",
+        lifespan=lifespan,
+        dependencies=[Depends(authenticate)],
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    app.state.settings = settings
+    app.include_router(dashboard.router)
+    app.middleware("http")(dashboard.protect_responses)
     app.state.session_factory = session_factory
     app.state.prices = prices
 
@@ -301,6 +316,9 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         settings.admission_requests_per_minute_per_ip, 60, seconds
     )
     identity = IdentityThrottle(settings, seconds)
+    app.state.auth_failures = SlidingWindowLimiter(
+        settings.auth_failures_per_ip, settings.auth_failure_window_seconds, seconds
+    )
 
     def get_call(session: Session, call_id: int) -> CallRecord:
         record = session.get(CallRecord, call_id)

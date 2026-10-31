@@ -9,4 +9,10 @@
 - [ ] Each injected failure produces an apology, one retry and an Escalation offer
 - [ ] A disconnect never leaves a Hold blocking Availability beyond its expiry
 - [ ] A dropped Call records a Callback Request
-- [ ] A failure-injection checklist documents each case and its outcome
+- [x] A failure-injection checklist documents each case and its outcome (`docs/failure-analysis.md`)
+
+## Notes (implementation)
+
+- Left unticked on purpose: the first three boxes are verified for the backend, the LLM, speech recognition, speech synthesis and disconnect handling with stand-ins (no provider, no LiveKit), but not against real LiveKit, Deepgram or Cartesia. What to check by hand is listed, unticked, in `docs/failure-analysis.md`.
+- Seams: `agent/failure_injection.py` (`FlakyBackend`, `FailingLLM`), `voice/failure_injection.py`, `voice/resilience.py` (`VoiceResilience`, `AsrDropoutWatch`).
+- Policy decisions made here for the human to confirm: a dropped Call is followed up with a Callback Request only when the Caller gave a number in that Call (otherwise nobody to ring); the follow-up is recorded after the Call ends so the outcome stays `dropped`; the scenario `dropped_call_after_readback_015` now expects a `callback_request`.

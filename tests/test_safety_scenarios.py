@@ -11,6 +11,7 @@ from typing import Any, cast
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from backend.app.config import BackendSettings
 from backend.app.main import create_app
@@ -18,7 +19,7 @@ from evals.harness import FakeClock
 from evals.runner import load_scenario
 from evals.safety_metrics import compute, run_all
 from evals.state import SessionFactory
-from tests.support import START_OF_TEST
+from tests.support import SERVICE_TOKEN, STAFF_PASSWORD, START_OF_TEST, sign_in
 
 SCENARIOS = Path(__file__).parent.parent / "evals" / "scenarios"
 
@@ -27,11 +28,15 @@ SCENARIOS = Path(__file__).parent.parent / "evals" / "scenarios"
 def fresh_backend() -> Generator[tuple[httpx.Client, SessionFactory, FakeClock]]:
     """A new backend on in-memory SQLite at the test clock, one per scenario."""
     settings = BackendSettings(
-        database_url="sqlite+pysqlite:///:memory:", demo_controls_enabled=True
+        database_url="sqlite+pysqlite:///:memory:",
+        demo_controls_enabled=True,
+        backend_service_token=SecretStr(SERVICE_TOKEN),  # module-scoped: no env fixture here
+        dashboard_password=SecretStr(STAFF_PASSWORD),
     )
     clock = FakeClock(START_OF_TEST)
     app = create_app(settings, clock=clock)
     with TestClient(app, base_url="http://backend") as client:
+        sign_in(client)
         yield cast(httpx.Client, client), app.state.session_factory, clock
 
 
