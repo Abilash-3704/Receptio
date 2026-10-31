@@ -102,6 +102,9 @@ class TextCall:
             elif self._state.pending_date is not None:
                 # The state machine, not the LLM, records that the Caller agreed to this date.
                 self._state.confirmed_dates.add(self._state.pending_date)
+            elif self._state.callback_offer is not None:
+                reason, self._state.callback_offer = self._state.callback_offer, None
+                return self._escalate(reason)
         spoken: list[str] = []
         for _ in range(MAX_STEPS_PER_TURN):
             step = self._llm.next_step(

@@ -10,5 +10,5 @@
 - [x] A correction releases the previous Hold before a new one is placed
 - [x] A preferred Provider is used when available, and the agent does not force a choice otherwise
 - [x] Times outside the booking window or Clinic Hours are never offered
-- [ ] A request sooner than 2 hours is offered a Callback Request (not ticked: the request is refused and flagged `offer_callback_request` in the tool result, with a marked SEAM in `agent/availability_search.py`; the actual Callback Request needs ticket 07)
+- [x] A request sooner than 2 hours is offered a Callback Request
 - [x] Scenarios cover correction, ambiguous time, out-of-window and no-Availability cases

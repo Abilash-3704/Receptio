@@ -64,8 +64,8 @@ class AvailabilitySearch:
         offers = self._spread(slots, resolution)
 
         if self._too_soon(resolution, days[0], bool(offers)):
-            # SEAM (ticket 07): when the Callback Request tool exists, the state machine offers
-            # it from here. Until then this only flags it in the tool result for the LLM.
+            # The flag tells the LLM to offer a Callback Request; the state machine records it
+            # (ticket 07's Escalation) only if the Caller's next answer is a plain yes.
             facts["reason"] = "too_soon"
             facts["offer_callback_request"] = True
             facts["earliest_bookable"] = say_date((now + MIN_NOTICE).date())

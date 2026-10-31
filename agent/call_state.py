@@ -53,6 +53,9 @@ class CallState:
     confirmed_dates: set[date] = field(default_factory=lambda: set())
     # Set when a Hold was lost (expired or taken) before the Caller's yes.
     hold_lost: str | None = None
+    # Why a Callback Request was offered (the request was sooner than the booking window allows).
+    # Taken up only if the Caller's next answer is a plain yes.
+    callback_offer: str | None = None
     awaiting_read_back_answer: bool = False
     read_back_agreed: bool = False
     appointment_id: int | None = None
@@ -88,6 +91,7 @@ class CallState:
             "offered": [o.label for o in self.offers],
             "hold": None if self.hold is None else self.hold.offer.label,
             "hold_lost": self.hold_lost,
+            "callback_offered": self.callback_offer is not None,
             "date_awaiting_caller_yes": None
             if self.pending_date is None
             else say_date(self.pending_date),

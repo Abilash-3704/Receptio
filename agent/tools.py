@@ -13,6 +13,8 @@ from agent.llm import ToolSpec
 from agent.times import resolve, say_date
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
 
+TOO_SOON_REASON = "wanted an Appointment sooner than 2 hours ahead"
+
 TOOL_SPECS = [
     ToolSpec(
         "check_availability",
@@ -188,6 +190,7 @@ class ToolBox:
                 refused=True,
             )
         state.pending_date = None
+        state.callback_offer = None
         self._release_live_hold()  # a new search means the Caller has left the old time
         state.service_id, state.service = match["id"], match["name"]
 
@@ -195,6 +198,8 @@ class ToolBox:
             resolution
         )
         state.offers = search.offers
+        if search.facts.get("offer_callback_request"):
+            state.callback_offer = TOO_SOON_REASON
         state.ever_offered |= {o.start for o in search.offers}
         if not search.ok:
             return ToolResult(False, search.facts)
