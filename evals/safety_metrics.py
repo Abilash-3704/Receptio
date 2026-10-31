@@ -8,18 +8,13 @@ Escalation recorded, no scheduling, Hold released). A scenario that crashes the 
 by consulting the LLM after the safety turn) counts as a miss. Scenarios marked `known_gap` are
 probes of what the detector cannot see: reported, never counted toward the targets."""
 
-from collections.abc import Callable
-from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
 
-import httpx
-
+from evals.harness import FreshBackend
 from evals.runner import Scenario, ScenarioResult, load_scenario, run_scenario
-from evals.state import SessionFactory
 
 Run = tuple[Scenario, ScenarioResult]
-FreshBackend = Callable[[], AbstractContextManager[tuple[httpx.Client, SessionFactory]]]
 
 
 def run_all(directory: Path, fresh_backend: FreshBackend) -> list[Run]:
@@ -29,8 +24,8 @@ def run_all(directory: Path, fresh_backend: FreshBackend) -> list[Run]:
     for path in sorted(directory.glob("*.yaml")):
         scenario = load_scenario(path)
         try:
-            with fresh_backend() as (backend, session_factory):
-                result = run_scenario(scenario, backend, session_factory)
+            with fresh_backend() as (backend, session_factory, clock):
+                result = run_scenario(scenario, backend, session_factory, clock)
         except AssertionError as exc:  # e.g. the scripted LLM was consulted after the safety turn
             result = ScenarioResult(scenario.id, [f"agent error: {exc}"], "none")
         runs.append((scenario, result))

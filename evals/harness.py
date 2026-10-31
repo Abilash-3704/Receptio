@@ -20,8 +20,6 @@ from evals.simulated_caller import SimulatedCaller
 from evals.state import SessionFactory
 
 Run = tuple[Scenario, ScenarioResult]
-FreshBackend = Callable[[], AbstractContextManager[tuple[httpx.Client, SessionFactory]]]
-
 # Monday 2 November 2026, 08:00 in Asia/Kolkata: the moment the seeded data is relative to.
 START = datetime(2026, 11, 2, 8, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
 SCENARIOS = Path(__file__).parent / "scenarios"
@@ -38,15 +36,20 @@ class FakeClock:
         self.now += delta
 
 
+# The backend, its database and the one clock the backend and the agent must share.
+FreshBackend = Callable[[], AbstractContextManager[tuple[httpx.Client, SessionFactory, FakeClock]]]
+
+
 @contextmanager
-def sqlite_backend() -> Generator[tuple[httpx.Client, SessionFactory]]:
+def sqlite_backend() -> Generator[tuple[httpx.Client, SessionFactory, FakeClock]]:
     """A new backend on in-memory SQLite at the fixed start, one per scenario."""
     settings = BackendSettings(
         database_url="sqlite+pysqlite:///:memory:", demo_controls_enabled=True
     )
-    app = create_app(settings, clock=FakeClock(START))
+    clock = FakeClock(START)
+    app = create_app(settings, clock=clock)
     with TestClient(app, base_url="http://backend") as client:
-        yield cast(httpx.Client, client), app.state.session_factory
+        yield cast(httpx.Client, client), app.state.session_factory, clock
 
 
 @dataclass(frozen=True)
@@ -76,8 +79,10 @@ def run_suite(
     for scenario in scenarios:
         caller = caller_for(scenario) if caller_for else None
         try:
-            with fresh_backend() as (backend, session_factory):
-                result = run_scenario(scenario, backend, session_factory, llm=llm, caller=caller)
+            with fresh_backend() as (backend, session_factory, clock):
+                result = run_scenario(
+                    scenario, backend, session_factory, clock, llm=llm, caller=caller
+                )
         except BudgetExceeded as exc:
             return Suite(runs, aborted=str(exc))
         except AssertionError as exc:
