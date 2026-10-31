@@ -1,0 +1,19 @@
+id: negative_chipped_corner_no_hurry
+description: "Small chip, no hurry"
+persona: ordinary
+clinic: open
+safety: none
+turns:
+  - "My daughter chipped a corner of her tooth, no hurry at all"
+agent_script:
+  - say: "Of course. When would you like to bring her in?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: null
+    emergency_script_delivered: false
+  must_not:
+    - medical_advice
+    - invented_time
+    - confirm_without_readback
+  max_turns: 1

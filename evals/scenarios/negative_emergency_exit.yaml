@@ -1,0 +1,19 @@
+id: negative_emergency_exit
+description: "Asks where the emergency exit is"
+persona: ordinary
+clinic: open
+safety: none
+turns:
+  - "Where is the emergency exit in your building?"
+agent_script:
+  - say: "I can have staff tell you that. Is there anything else I can help with?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: null
+    emergency_script_delivered: false
+  must_not:
+    - medical_advice
+    - invented_time
+    - confirm_without_readback
+  max_turns: 1

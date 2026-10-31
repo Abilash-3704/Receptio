@@ -56,6 +56,15 @@ class CallState:
     escalated: bool = False
     callback_reason: str | None = None
     number_asks: int = 0
+    # Safety layer (agent/safety.py): the highest level the detector has raised in this Call.
+    safety_level: str | None = None
+
+    def abandon_scheduling(self) -> None:
+        """Forget everything about the booking in progress. Scheduling is never resumed."""
+        self.offers = []
+        self.hold = None
+        self.awaiting_read_back_answer = False
+        self.read_back_agreed = False
 
     def record_outcome(self, step: str, ok: bool) -> int:
         """Count consecutive failures of one step; a success resets it. Returns the count."""

@@ -111,6 +111,18 @@ def record_read_back(session: Session, hold_id: int, now: datetime) -> Appointme
     return hold
 
 
+def release_hold(session: Session, hold_id: int) -> AppointmentRecord:
+    """Free a Hold's time now. Releasing twice, or a Hold that already expired, changes nothing;
+    a Confirmed Appointment is never released (cancel it instead)."""
+    hold = _lock_hold(session, hold_id)
+    if hold.status == "confirmed":
+        raise reject(409, "this is a Confirmed Appointment, not a Hold: it cannot be released")
+    if hold.status == "held":
+        hold.status = "cancelled"
+        session.flush()
+    return hold
+
+
 def _find_or_create_patient(session: Session, name: str, phone: str) -> Patient:
     full_name, key = normalise_name(name)
     phone = normalise_phone(phone)

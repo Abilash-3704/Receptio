@@ -211,6 +211,17 @@ class ToolBox:
         self._post(f"/appointments/{appointment['id']}/confirmation-message", self._key("message"))
         return ToolResult(True, {"confirmed": state.hold.offer.label})
 
+    def release_hold(self) -> None:
+        """Called by the state machine when an Emergency or Urgent Case ends scheduling. A failed
+        release is not fatal: the Hold then expires on its own."""
+        hold = self._state.hold
+        if hold is not None:
+            try:
+                self._post(f"/holds/{hold.id}/release", self._key("release"))
+            except (BackendError, httpx.HTTPError):
+                pass
+        self._state.abandon_scheduling()
+
     def record_read_back_agreement(self) -> None:
         """Called by the state machine, never by the LLM, when the Caller says yes."""
         state = self._state

@@ -40,7 +40,10 @@ The agent core (`agent/`) never imports LiveKit or the Anthropic SDK. The LLM si
 
 ```
 uv run pytest tests/test_scenario_runner.py     # runs evals/scenarios/*.yaml with the scripted LLM
+uv run pytest tests/test_safety_scenarios.py -s # Emergency / Urgent Case recall and false positives
 ```
+
+The safety layer (Emergency and Urgent Case detector, fixed 112 script) and what it cannot cover are in `docs/safety.md`.
 
 Friction: the `llm` extra pulls in `httpx2`, which makes Starlette's `TestClient` subclass `httpx2.Client` instead of `httpx.Client`. Tests cast it back (see `tests/conftest.py`); the agent's backend code does not depend on httpx exception classes for that reason.
 

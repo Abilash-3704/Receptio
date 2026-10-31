@@ -23,6 +23,15 @@ from agent.escalation import (
     phone_in,
 )
 from agent.llm import LLM, LLMTurn, Message, Say
+from agent.safety import (
+    EMERGENCY,
+    EMERGENCY_REASON,
+    EMERGENCY_SCRIPT,
+    URGENT,
+    URGENT_HANDOFF_SPEECH,
+    URGENT_REASON,
+    detect,
+)
 from agent.time_guard import unoffered_times
 from agent.tools import TOOL_SPECS, ToolBox, ToolCall
 
@@ -83,6 +92,12 @@ class TextCall:
         """The Caller says something. Returns what the Caller hears in reply."""
         assert self._llm is not None, "this Call has no LLM"
         self.say("caller", caller_text)
+        # Safety first, in code, on every turn: before any other state and before the LLM.
+        level = detect(caller_text)
+        if level == EMERGENCY:
+            return self._emergency(caller_text)
+        if level == URGENT and self._state.safety_level is None:
+            return self._urgent(caller_text)
         if self._state.escalated:
             return []  # the Call is with staff now
         if self._state.callback_reason is not None:
@@ -121,18 +136,42 @@ class TextCall:
         self._speak(STUCK, spoken)
         return spoken
 
-    def _escalate(self, reason: str) -> list[str]:
+    def _emergency(self, caller_text: str) -> list[str]:
+        """The fixed script is the only thing said. The Escalation is recorded straight away,
+        with whatever number is known and without asking for one: the Caller has been told to
+        hang up and call 112."""
+        spoken: list[str] = []
+        self._speak(EMERGENCY_SCRIPT, spoken)
+        state = self._state
+        if state.safety_level != EMERGENCY:  # a repeat repeats the script, not the Escalation
+            state.safety_level = EMERGENCY
+            self._tools.release_hold()
+            state.callback_reason = None
+            phone = state.patient_phone or phone_in(caller_text)
+            self._record_escalation(EMERGENCY_REASON, phone, key="emergency", speak=False)
+        return spoken
+
+    def _urgent(self, caller_text: str) -> list[str]:
+        """Same-day staff triage: no 112 script, no scheduling, no advice."""
+        self._state.safety_level = URGENT
+        self._tools.release_hold()
+        return self._escalate(URGENT_REASON, phone_in(caller_text), key="urgent")
+
+    def _escalate(
+        self, reason: str, phone: str | None = None, key: str = "escalation"
+    ) -> list[str]:
         """Pass the Call to staff. Handoff or Callback Request is the backend's decision from
         Clinic Hours; a Callback Request needs a number, so ask if the Call has none yet."""
         spoken: list[str] = []
         state = self._state
+        phone = state.patient_phone or phone
         is_open: bool = self._backend.get("/clinic-status").json()["open"]
-        if not is_open and state.patient_phone is None:
+        if not is_open and phone is None:
             state.callback_reason = reason
             state.number_asks = 1
             self._speak(ASK_NUMBER, spoken)
             return spoken
-        return self._record_escalation(reason, state.patient_phone)
+        return self._record_escalation(reason, phone, key=key)
 
     def _take_callback_number(self, caller_text: str) -> list[str]:
         state = self._state
@@ -143,19 +182,24 @@ class TextCall:
             spoken: list[str] = []
             self._speak(ASK_NUMBER_AGAIN, spoken)
             return spoken
-        return self._record_escalation(state.callback_reason, phone)
+        key = "urgent" if state.safety_level == URGENT else "escalation"
+        return self._record_escalation(state.callback_reason, phone, key=key)
 
-    def _record_escalation(self, reason: str, phone: str | None) -> list[str]:
+    def _record_escalation(
+        self, reason: str, phone: str | None, key: str = "escalation", speak: bool = True
+    ) -> list[str]:
         response = self._backend.post(
             f"/calls/{self.call_id}/escalations",
-            headers={"Idempotency-Key": f"call{self.call_id}-escalation"},
+            headers={"Idempotency-Key": f"call{self.call_id}-{key}"},
             json={"reason": reason, "caller_phone": phone},
         )
         response.raise_for_status()
         self._state.escalated = True
         self._state.callback_reason = None
+        if not speak:
+            return []
         if response.json()["kind"] == "handoff":
-            speech = HANDOFF_SPEECH
+            speech = URGENT_HANDOFF_SPEECH if key == "urgent" else HANDOFF_SPEECH
         else:
             speech = CALLBACK_SPEECH if phone else CALLBACK_NO_NUMBER_SPEECH
         spoken: list[str] = []
