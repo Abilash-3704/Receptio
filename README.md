@@ -32,11 +32,11 @@ TEST_DATABASE_URL=postgresql+psycopg://receptio:receptio@localhost:55432/recepti
 
 The test database's `public` schema is dropped and rebuilt for every test, so point it at a throwaway database only. The backend applies Alembic migrations (`backend/migrations`) on startup for Postgres.
 
-The voice and LLM SDKs are optional extras (`--extra voice`, `--extra llm`, mutually exclusive because `livekit-plugins-anthropic` 1.8.10 needs `anthropic<2`). LiveKit is not in Compose yet (TODO, ticket 12).
+The Anthropic SDK is a normal dependency, held at 1.x because `livekit-plugins-anthropic` 1.8.10 needs `anthropic<2`. The LiveKit voice packages are an optional extra (`uv sync --extra voice`). LiveKit is not in Compose yet (TODO, ticket 12).
 
 ### Text-mode booking and scenarios
 
-The agent core (`agent/`) never imports LiveKit or the Anthropic SDK. The LLM sits behind `agent/llm.py`: tests and CI use `agent/scripted_llm.py` (deterministic, no network, no keys). The real model, `agent/anthropic_llm.py`, needs `uv sync --extra llm`, `ANTHROPIC_API_KEY`, and `LLM_MODEL` / `LLM_MODEL_FAST`; it is not run in CI.
+The agent core (`agent/`) never imports LiveKit or the Anthropic SDK. The LLM sits behind `agent/llm.py`: tests and CI use `agent/scripted_llm.py` (deterministic, no network, no keys). The real model, `agent/anthropic_llm.py`, needs `ANTHROPIC_API_KEY`, and `LLM_MODEL` / `LLM_MODEL_FAST`; it is not run in CI.
 
 ```
 uv run pytest tests/test_scenario_runner.py     # runs evals/scenarios/*.yaml with the scripted LLM
@@ -58,7 +58,7 @@ uv run python -m evals --check-baseline         # exit 1 if worse than the basel
 The scripted run uses the scripted LLM and the scripted Caller turns, both written by the author of the rules. Its 100% is a **regression gate, not evidence of real-model quality**. For meaningful recall and completion numbers, an LLM plays the Caller (personas `patient`, `rushed`, `confused`, `hostile`, in `evals/personas.yaml`; add your own with `--personas FILE`) and the real model plays the agent. That calls the real API and costs money, so it is opt-in:
 
 ```
-uv sync --extra llm
+uv sync
 uv run python -m evals --mode simulated --dry-run                  # prints worst-case spend, calls nothing, needs no key
 ANTHROPIC_API_KEY=... uv run python -m evals --mode simulated --persona hostile --limit 3 --max-cost-usd 0.25
 ```

@@ -33,7 +33,7 @@ def backend(clock: FakeClock) -> Iterator[httpx.Client]:
         database_url=POSTGRES_URL or "sqlite+pysqlite:///:memory:", demo_controls_enabled=True
     )
     with TestClient(create_app(settings, clock=clock), base_url="http://backend") as client:
-        # With the `llm` extra installed, starlette's TestClient subclasses httpx2.Client, not
+        # starlette's TestClient subclasses httpx2.Client in this dependency set, not
         # httpx.Client. It is call-compatible, so the agent code (typed on httpx) runs unchanged.
         yield cast(httpx.Client, client)
 

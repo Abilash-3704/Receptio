@@ -63,10 +63,12 @@ Latest stable on PyPI on 2026-10-31. Pin exactly in `pyproject.toml`/`uv.lock` w
 | livekit-plugins-cartesia | 1.8.10 |
 | livekit-plugins-anthropic | 1.8.10 |
 | livekit-plugins-silero | 1.8.10 |
-| anthropic | 2.3.0 |
+| anthropic | 1.17.0 (held at 1.x, see below) |
 | pytest | 9.2.0 |
 | ruff | 0.17.3 |
 | pyright | 1.1.414 |
+
+`anthropic` is held at 1.x because `livekit-plugins-anthropic` 1.8.10, the latest release, requires `anthropic<2`. Decided 2026-10-31 over skipping the plugin or waiting for a release. Move to 2.x when the plugin supports it. Not yet checked with a real call that the 1.x SDK works with the `claude-*-5-5` model IDs; they are passed as plain strings.
 
 LiveKit plugins must share one version with `livekit-agents`. `deepgram-sdk` (7.16.0) is not needed directly while the LiveKit plugin is used.
 

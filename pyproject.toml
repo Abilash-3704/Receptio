@@ -11,6 +11,9 @@ dependencies = [
     "pydantic-settings==2.14.1",
     "httpx==0.28.1",
     "alembic==1.18.4",
+    # Held at 1.x: livekit-plugins-anthropic 1.8.10 requires anthropic<2. Revisit when LiveKit's
+    # plugin supports 2.x.
+    "anthropic==1.17.0",
 ]
 
 [project.optional-dependencies]
@@ -22,12 +25,6 @@ voice = [
     "livekit-plugins-anthropic==1.8.10",
     "livekit-plugins-silero==1.8.10",
 ]
-# Simulated Caller and judge (eval tickets). Conflicts with `voice`: livekit-plugins-anthropic
-# 1.8.10 requires anthropic<2, while architecture.md pins anthropic 2.3.0.
-llm = ["anthropic==2.3.0"]
-
-[tool.uv]
-conflicts = [[{ extra = "voice" }, { extra = "llm" }]]
 
 [dependency-groups]
 dev = [
