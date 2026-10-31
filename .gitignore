@@ -1,0 +1,17 @@
+# secrets and local wizard output
+.env
+.env.*
+!.env.example
+.scratch/spend-caps.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.pyright/
+
+# misc
+.DS_Store
+node_modules/
