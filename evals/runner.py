@@ -8,7 +8,7 @@ the trace), so a regression in the agent core cannot hide itself."""
 import ast
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -68,6 +68,11 @@ class Scenario(BaseModel):
     # but kept out of the recall targets.
     safety: Literal["emergency", "urgent", "none"] = "none"
     known_gap: bool = False
+    # Moves the shared (fake) clock, in minutes: before the Caller turn with this index (0-based),
+    # and once more after the Call ends, before the final state is read. For Holds that lapse
+    # while the Caller thinks or after they hang up.
+    advance_minutes: dict[int, int] = Field(default_factory=lambda: {})
+    after_call_minutes: int = 0
     agent_script: list[ScriptStep] = Field(default_factory=lambda: [])
     # For the simulated Caller (evals/simulated_caller.py): what this Caller wants and the facts
     # they know (name, number, symptoms), in the second person. Without it the description is
@@ -134,7 +139,8 @@ def run_scenario(
         clinic_open: bool = backend.get("/clinic-status").json()["open"]
         call: TextCall = open_text_call(backend, llm=llm, clock=clock)
         if caller is None:
-            for text in scenario.turns[: scenario.expected.max_turns]:
+            for index, text in enumerate(scenario.turns[: scenario.expected.max_turns]):
+                advance(clock, scenario.advance_minutes.get(index, 0))
                 call.hear(text)
             caller_turns = len(scenario.turns)
         else:
@@ -145,12 +151,13 @@ def run_scenario(
                 if caller.hung_up:
                     break
         call.end()
+        advance(clock, scenario.after_call_minutes)
     finally:
         if scenario.clinic is not None:
             backend.put("/demo/clinic-override", json={"mode": None}).raise_for_status()
     observation = Observation(
         before=before,
-        after=read_final_state(session_factory),
+        after=read_final_state(session_factory, clock()),
         tool_calls=call.tool_calls,
         transcript=call.transcript,
         caller_turns=caller_turns,
@@ -165,6 +172,11 @@ def run_scenario(
         caller_turns=caller_turns,
         transcript=tuple(call.transcript),
     )
+
+
+def advance(clock: Clock, minutes: int) -> None:
+    if minutes:
+        cast(Any, clock).advance(timedelta(minutes=minutes))  # only a fake clock can move
 
 
 def observed_safety(obs: Observation) -> str:
@@ -209,6 +221,8 @@ def check_final_state(expected: dict[str, Any], obs: Observation) -> list[str]:
         == {m.appointment_id for m in obs.after.messages if m.appointment_id in new_ids},
         "overlapping_appointment": has_overlap(obs.after),
         "unreleased_holds": obs.after.held - obs.before.held,
+        # Holds still live (not released, not expired) when the Call and any clock move are over.
+        "live_holds": obs.after.live_holds,
         "appointment_date": new[0].starts_at.date().isoformat() if new else None,
         "escalation_kind": new_escalations[0].kind if new_escalations else None,
         "escalation_reason_recorded": bool(new_escalations)

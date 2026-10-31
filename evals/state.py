@@ -58,9 +58,11 @@ class FinalState:
     patients: list[str]  # Patient names
     messages: list[MessageRow]
     escalations: list[EscalationRow] = field(default_factory=lambda: [])
+    # Holds that are Held and not yet expired at the moment of reading (needs `now`).
+    live_holds: int = 0
 
 
-def read_final_state(session_factory: SessionFactory) -> FinalState:
+def read_final_state(session_factory: SessionFactory, now: datetime | None = None) -> FinalState:
     with session_factory() as session:
         confirmed: list[AppointmentRow] = []
         rows = session.scalars(
@@ -92,6 +94,12 @@ def read_final_state(session_factory: SessionFactory) -> FinalState:
                 select(AppointmentRecord.id).where(AppointmentRecord.status == "held")
             ).all()
         )
+        live_holds = 0
+        if now is not None:
+            expiries = session.scalars(
+                select(AppointmentRecord.expires_at).where(AppointmentRecord.status == "held")
+            )
+            live_holds = sum(1 for e in expiries if e is not None and e > now)
         patients = [p.full_name for p in session.scalars(select(Patient).order_by(Patient.id))]
         messages = [
             MessageRow(m.appointment_id, m.to_phone, m.body)
@@ -101,4 +109,4 @@ def read_final_state(session_factory: SessionFactory) -> FinalState:
             EscalationRow(e.call_id, e.kind, e.reason, e.caller_phone)
             for e in session.scalars(select(EscalationRecord).order_by(EscalationRecord.id))
         ]
-    return FinalState(confirmed, held, patients, messages, escalations)
+    return FinalState(confirmed, held, patients, messages, escalations, live_holds)
