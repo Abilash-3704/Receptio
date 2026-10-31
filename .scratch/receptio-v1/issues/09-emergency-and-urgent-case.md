@@ -4,7 +4,7 @@
 
 **Blocked by:** 07: Escalation: Handoff, Callback Request, Clinic Hours and retry caps
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] The Emergency script is fixed, versioned text and is the only thing said on that turn
 - [x] An Emergency mid-booking abandons the flow and releases the Hold

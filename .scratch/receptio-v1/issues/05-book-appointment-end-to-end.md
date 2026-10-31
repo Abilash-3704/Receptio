@@ -4,7 +4,7 @@
 
 **Blocked by:** 04: Confirm, cancel and atomic reschedule rules
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] A scripted text Call ends with a Confirmed Appointment in the database
 - [x] The agent never offers a time that Availability did not return

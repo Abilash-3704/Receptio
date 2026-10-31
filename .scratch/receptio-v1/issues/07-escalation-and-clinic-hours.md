@@ -4,7 +4,7 @@
 
 **Blocked by:** 05: Book an Appointment end to end in text mode
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] A Handoff is offered only during Clinic Hours, a Callback Request otherwise
 - [x] Every Escalation is stored with a reason

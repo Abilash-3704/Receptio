@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Project skeleton and a tracer text-mode Call
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Seed data covers a few Providers, Services of different lengths and Clinic Hours
 - [x] Availability respects Service duration, working hours, Appointments and Holds

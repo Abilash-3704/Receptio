@@ -4,7 +4,7 @@
 
 **Blocked by:** 04: Confirm, cancel and atomic reschedule rules; 07: Escalation: Handoff, Callback Request, Clinic Hours and retry caps
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] No Appointment detail is spoken before name and phone both match
 - [x] Two failed identifications produce a Callback Request

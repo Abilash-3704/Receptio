@@ -4,7 +4,7 @@
 
 **Blocked by:** 05: Book an Appointment end to end in text mode; 12: Web client voice loop with latency instrumentation
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Each Call, turn and tool call is persisted with its outcome
 - [x] Latency and cost are stored per turn and per Call

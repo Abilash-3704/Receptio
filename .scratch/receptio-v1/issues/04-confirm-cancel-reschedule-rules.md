@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Availability and Holds in the clinic backend
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Confirm is rejected without a recorded read-back or with an expired Hold
 - [x] A retried confirm with the same idempotency key never creates a second Appointment

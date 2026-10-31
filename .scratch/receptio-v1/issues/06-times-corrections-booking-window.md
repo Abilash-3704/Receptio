@@ -4,7 +4,7 @@
 
 **Blocked by:** 05: Book an Appointment end to end in text mode
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Relative and ambiguous times resolve correctly in `Asia/Kolkata`, including across a day boundary
 - [x] A correction releases the previous Hold before a new one is placed
