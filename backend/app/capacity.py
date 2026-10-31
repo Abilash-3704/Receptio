@@ -106,9 +106,7 @@ def admit(
             return Refused(reason, REFUSALS[reason].format(n=settings.visitor_calls_per_day))
     return _record(
         session,
-        CallAdmission(
-            room=room, day=day, reserved_seconds=reserve, settled=False, admitted_at=now
-        ),
+        CallAdmission(room=room, day=day, reserved_seconds=reserve, settled=False, admitted_at=now),
     )
 
 
