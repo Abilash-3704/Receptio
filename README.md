@@ -55,7 +55,7 @@ uv run python -m evals --write-baseline         # save this run as evals/baselin
 uv run python -m evals --check-baseline         # exit 1 if worse than the baseline (ticket 15's gate)
 ```
 
-The suite is 114 scenarios (101 core, 13 known-gap probes); `docs/eval-report.md` has the methodology, the current baseline, which scenario covers which of the 15 tricky calls, and the known gaps.
+The suite is 114 scenarios (102 core, 12 known-gap probes); `docs/eval-report.md` has the methodology, the current baseline, which scenario covers which of the 15 tricky calls, and the known gaps.
 
 **CI gate.** The `scripted-evals` job in `.github/workflows/ci.yml` runs `uv run python -m evals --mode scripted --check-baseline` on every push and pull request. It fails (exit 1, `REGRESSION against baseline: ...`) if any gated metric is worse than `evals/baselines/scripted.json`, if wrong-time rate is not 0, Emergency recall is not 100%, completion is under 90% or Urgent Case recall under 95%, or if fewer core scenarios ran than the baseline recorded. Run it locally before pushing. When a metric legitimately changes, regenerate with `--write-baseline` and say why in the commit. CI never runs a real-model or simulated-Caller run: it has no key and that spends money.
 

@@ -1,5 +1,5 @@
 id: human_requested_mid_booking_015
-description: "Caller asks for a person while a Hold is in place and the clinic is open: a Handoff with a reason is made, nothing is confirmed, and the unconfirmed Hold lapses on its own"
+description: "Caller asks for a person while a Hold is in place and the clinic is open: a Handoff with a reason is made, nothing is confirmed, and the Hold is released at once (not left to lapse)"
 persona: hostile
 category: escalation
 clinic: open
@@ -8,7 +8,6 @@ turns:
   - "A cleaning on Tuesday"
   - "The first one. Neha Kapoor, +91 98450 22222"
   - "This is taking forever. Let me speak to a real person."
-after_call_minutes: 6
 agent_script:
   - tool: check_availability
     args: {service: Cleaning, when: Tuesday}

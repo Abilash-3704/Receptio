@@ -74,11 +74,20 @@ FILLER = {
 }  # fmt: skip
 
 
-def is_explicit_yes(text: str) -> bool:
+def is_explicit_yes(text: str, action: str | None = None) -> bool:
+    """A plain yes. With `action`, the word for what the read-back asked ("cancel", "book") is
+    also allowed once, so "yes, cancel it" counts for the cancel read-back only. It must follow
+    the affirmative, and every other word must still be filler: "yes, book it" does not answer
+    a cancel read-back, and "yes, but..." or "yes, cancel it tomorrow" answer nothing."""
     words = re.sub(r"[^a-z' ]", " ", text.casefold().replace("'", "")).split()
     if "?" in text or not words or words[0] not in AFFIRMATIVES:
         return False
-    return all(word in FILLER or word in AFFIRMATIVES for word in words)
+    allowed = FILLER | AFFIRMATIVES
+    if action is not None:
+        allowed = allowed | {action, "and"}
+        if words.count(action) > 1:
+            return False
+    return all(word in allowed for word in words)
 
 
 class TextCall:
@@ -136,7 +145,7 @@ class TextCall:
             medical: list[str] = []
             self._speak(MEDICAL_SPEECH, medical)
             return medical
-        if is_explicit_yes(caller_text):
+        if is_explicit_yes(caller_text, "book" if state.awaiting_read_back_answer else None):
             if self._state.awaiting_read_back_answer:
                 self._tools.record_read_back_agreement()
             elif self._state.pending_date is not None:
@@ -146,7 +155,7 @@ class TextCall:
                 reason, self._state.callback_offer = self._state.callback_offer, None
                 return self._escalate(reason)
         if self._state.awaiting_cancel_answer:
-            self._tools.record_cancel_answer(is_explicit_yes(caller_text))
+            self._tools.record_cancel_answer(is_explicit_yes(caller_text, "cancel"))
         spoken: list[str] = []
         for _ in range(MAX_STEPS_PER_TURN):
             step = self._llm.next_step(
@@ -214,6 +223,8 @@ class TextCall:
         failed identification). A Callback Request needs a number, so ask if the Call has none."""
         spoken: list[str] = []
         state = self._state
+        # Any Escalation ends scheduling: the Hold goes back at once rather than lapsing.
+        self._tools.release_hold()
         phone = state.patient_phone or phone
         is_open: bool = self._backend.get("/clinic-status").json()["open"]
         if (not is_open or forced_kind(reason) is not None) and phone is None:

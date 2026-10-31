@@ -86,6 +86,12 @@ def answer_to_read_back(backend: httpx.Client, answer: str) -> tuple[bool, Final
         "yes? no wait, what was the time again",
         "No, not that one",
         "I said yesterday, yes, that works for her",
+        "Yes, book it but Wednesday",
+        "Yes, book it?",
+        "Yes, but book it",
+        "I guess, book it",
+        "Yes, cancel it",  # the action must match the question asked
+        "book it",  # no affirmative
     ],
 )
 def test_only_an_explicit_yes_counts_as_agreeing_to_the_read_back(
@@ -98,7 +104,18 @@ def test_only_an_explicit_yes_counts_as_agreeing_to_the_read_back(
 
 
 @pytest.mark.parametrize(
-    "answer", ["Yes", "yes please", "Yeah, that's right", "Correct.", "Yes, that works, thanks!"]
+    "answer",
+    [
+        "Yes",
+        "yes please",
+        "Yeah, that's right",
+        "Correct.",
+        "Yes, that works, thanks!",
+        "Yes, book it",
+        "Yes please book it",
+        "yes confirm",
+        "Yes, go ahead and book it",
+    ],
 )
 def test_a_plain_yes_to_the_read_back_lets_the_confirm_through(
     backend: httpx.Client, answer: str

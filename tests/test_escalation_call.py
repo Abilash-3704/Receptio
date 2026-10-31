@@ -191,3 +191,64 @@ def test_a_success_in_between_resets_the_failure_count(backend: httpx.Client) ->
 
     assert call.hear("Hmm") == ["Which one?"]
     assert escalations(backend) == []
+
+
+# Releasing a Hold on ANY Escalation (a Hold is never left to lapse once the Call is with staff).
+# The Emergency and Urgent Case variants live in test_safety_call.py.
+
+
+def test_a_handoff_mid_booking_releases_the_hold(backend: httpx.Client) -> None:
+    from tests.test_safety_call import hold_blocks_time, mid_booking_call
+
+    set_clinic(backend, "open")
+    call, offer = mid_booking_call(backend)
+    assert hold_blocks_time(backend, offer)
+
+    call.hear("This is taking too long, put me through to the receptionist")
+
+    assert escalations(backend)[0]["kind"] == "handoff"
+    assert not hold_blocks_time(backend, offer)
+
+
+def test_a_callback_request_mid_booking_releases_the_hold(backend: httpx.Client) -> None:
+    from tests.test_safety_call import hold_blocks_time, mid_booking_call
+
+    set_clinic(backend, "closed")
+    call, offer = mid_booking_call(backend)
+    assert hold_blocks_time(backend, offer)
+
+    call.hear("Let me talk to a human")
+    call.hear("+91 98450 22222")
+
+    assert escalations(backend)[0]["kind"] == "callback_request"
+    assert not hold_blocks_time(backend, offer)
+
+
+def test_a_callback_waiting_for_a_number_does_not_keep_the_hold(backend: httpx.Client) -> None:
+    from tests.test_safety_call import hold_blocks_time, mid_booking_call
+
+    set_clinic(backend, "closed")
+    call, offer = mid_booking_call(backend)
+
+    call.hear("Let me talk to a human")
+
+    assert escalations(backend) == []  # still asking for a number
+    assert not hold_blocks_time(backend, offer)
+
+
+def test_the_human_requested_mid_booking_scenario_releases_the_hold_without_waiting(
+    backend: httpx.Client,
+) -> None:
+    """Scenario level: no time passes after the Call, so only a release can free the Hold."""
+    from pathlib import Path
+    from typing import cast
+
+    from evals.runner import load_scenario, run_scenario
+
+    path = Path(__file__).parent.parent / "evals/scenarios/human_requested_mid_booking_015.yaml"
+    scenario = load_scenario(path)
+    assert scenario.after_call_minutes == 0
+    assert scenario.expected.final_state["live_holds"] == 0
+
+    factory = cast(Any, backend).app.state.session_factory
+    assert run_scenario(scenario, backend, factory).failures == []

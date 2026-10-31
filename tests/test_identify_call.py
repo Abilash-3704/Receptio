@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import Any
 
 import httpx
+import pytest
 
 from agent.llm import Say, Step, UseTool
 from agent.scripted_llm import ScriptedLLM
@@ -269,3 +270,64 @@ def test_a_reschedule_cannot_be_confirmed_without_the_read_back_yes(
 
     assert call.tool_calls[-1].refused
     assert [a["id"] for a in asha_appointments(backend)] == [original["id"]]
+
+
+def answer_to_cancel_read_back(backend: httpx.Client, answer: str) -> bool:
+    """Read the cancellation back, have the Caller answer, let the LLM try to cancel. Returns
+    whether the Appointment was cancelled."""
+    appointment = book_filling(backend)
+    call = call_with(
+        backend,
+        [
+            IDENTIFY_ASHA,
+            UseTool("request_cancel"),
+            UseTool("cancel_appointment"),
+            Say("Done, it's cancelled."),
+            Say("Sorry, could you confirm the cancellation?"),
+        ],
+    )
+    call.hear("Cancel my appointment. Asha Menon, +91 98450 12345")
+    call.hear(answer)
+    return status_of(backend, appointment["id"]) == "cancelled"
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Yes, cancel it",
+        "Yes please cancel it",
+        "yes cancel",
+        "Yes, go ahead and cancel",
+        "Yeah, cancel that",
+        "Yes, please cancel it, thanks!",
+    ],
+)
+def test_a_short_yes_that_names_the_cancel_counts_as_agreeing(
+    backend: httpx.Client, answer: str
+) -> None:
+    assert answer_to_cancel_read_back(backend, answer)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Yes, but...",
+        "yes but only if it is free",
+        "uh-huh",
+        "yes?",
+        "I guess",
+        "I guess, cancel it",
+        "maybe yes",
+        "maybe yes, cancel it",
+        "Yes, but not that one",
+        "yes... actually no",
+        "Yes, cancel it, no wait",
+        "Yes, cancel it?",
+        "Yes, don't cancel it",
+        "Yes, cancel it tomorrow",
+        "cancel it",  # no affirmative: not a yes
+        "Yes, book it",  # the action must match the question asked
+    ],
+)
+def test_a_hedged_or_conditional_answer_does_not_cancel(backend: httpx.Client, answer: str) -> None:
+    assert not answer_to_cancel_read_back(backend, answer)
