@@ -11,7 +11,7 @@ from typing import Any
 import anthropic
 
 from agent.config import AgentSettings
-from agent.llm import LLMTurn, LLMUsage, Message, Say, Step, UseTool
+from agent.llm import LLMError, LLMTurn, LLMUsage, Message, Say, Step, UseTool
 
 SYSTEM_PROMPT = """You are the receptionist for a dental clinic, speaking with a Caller. You are
 an AI. Keep replies short and natural: they are spoken aloud.
@@ -61,17 +61,20 @@ class AnthropicLLM:
     def next_step(self, turn: LLMTurn) -> Step:
         self.last_usage = None
         started = time.monotonic()
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=400,
-            timeout=self._timeout,
-            system=SYSTEM_PROMPT + json.dumps(turn.summary, indent=1),
-            messages=to_api_messages(turn.messages),
-            tools=[
-                {"name": t.name, "description": t.description, "input_schema": t.parameters}
-                for t in turn.tools
-            ],
-        )
+        try:
+            response = self._client.messages.create(
+                model=self._model,
+                max_tokens=400,
+                timeout=self._timeout,
+                system=SYSTEM_PROMPT + json.dumps(turn.summary, indent=1),
+                messages=to_api_messages(turn.messages),
+                tools=[
+                    {"name": t.name, "description": t.description, "input_schema": t.parameters}
+                    for t in turn.tools
+                ],
+            )
+        except anthropic.APIError as exc:  # connection, timeout, rate limit, 5xx, bad request
+            raise LLMError(type(exc).__name__) from exc  # the message could hold Call content
         usage = getattr(response, "usage", None)  # absent only from test stubs
         if usage is not None:
             self.last_usage = LLMUsage(
