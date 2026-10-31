@@ -8,6 +8,7 @@ on the Hold, then on the Patient (always in that order). On Postgres, partial ex
 constraints (migration 0002) are the backstop if a lock were ever missed."""
 
 import re
+import unicodedata
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException
@@ -30,10 +31,18 @@ def reject(status: int, detail: str) -> HTTPException:
     return HTTPException(status_code=status, detail=detail)
 
 
+NAME_PUNCTUATION = set(" '\u2019-.")
+
+
 def normalise_name(raw: str) -> tuple[str, str]:
-    name = " ".join(raw.split())
+    """A name is letters (any script), combining marks, spaces and ' - . only. Anything else, such
+    as newlines, control characters, brackets or markup, is not a name: caller speech reaches this
+    field, and the name is later written into a Confirmation Message."""
+    name = re.sub(" +", " ", raw).strip()
     if not name or len(name) > 80:
         raise reject(422, "patient name must be 1 to 80 characters")
+    if not all(unicodedata.category(c)[0] in "LM" or c in NAME_PUNCTUATION for c in name):
+        raise reject(422, "patient name may contain only letters, spaces, apostrophes, - and .")
     return name, name.casefold()
 
 
