@@ -1,5 +1,5 @@
 import math
-from collections.abc import AsyncGenerator, Iterator
+from collections.abc import AsyncGenerator, Generator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
@@ -382,7 +382,7 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         )
 
     @contextmanager
-    def identified(session: Session, hold_id: int, who: tuple[str, str] | None) -> Iterator[None]:
+    def identified(session: Session, hold_id: int, who: tuple[str, str] | None) -> Generator[None]:
         """Throttle identification on a Hold, but only a reschedule Hold asks for it: a new
         booking's name and phone are details to record, not a claim to be someone."""
         hold = session.get(AppointmentRecord, hold_id)

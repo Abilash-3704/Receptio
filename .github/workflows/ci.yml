@@ -33,8 +33,8 @@ jobs:
         with:
           version: "0.13.6"
       - run: uv sync --frozen --extra voice
-      - run: uv run ruff format --check agent backend evals tests voice
-      - run: uv run ruff check agent backend evals tests voice
+      - run: uv run ruff format --check agent backend evals loadtest tests voice
+      - run: uv run ruff check agent backend evals loadtest tests voice
       - run: uv run pyright
       # -rs lists skips with reasons; with Postgres up, none should mention TEST_DATABASE_URL.
       - run: uv run pytest -rs

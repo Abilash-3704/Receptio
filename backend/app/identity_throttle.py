@@ -19,7 +19,7 @@ state is in process (see ratelimit.py); a restart forgets it."""
 import hashlib
 import math
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 
 from fastapi import HTTPException
@@ -58,7 +58,7 @@ class IdentityThrottle:
         return [w for w in found if w is not None]
 
     @contextmanager
-    def guard(self, name: str, phone: str) -> Iterator[None]:
+    def guard(self, name: str, phone: str) -> Generator[None]:
         """Wrap one identification attempt: refused up front when a bucket is full, and a 403
         from inside counts as a failure."""
         waits = self._waits(name, phone)

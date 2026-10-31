@@ -27,6 +27,12 @@ services:
       GLOBAL_MINUTES_PER_DAY: ${GLOBAL_MINUTES_PER_DAY:-120}
       CAPS_TEST_MODE: ${CAPS_TEST_MODE:-false}
       DEPLOYED_ENVIRONMENT: ${DEPLOYED_ENVIRONMENT:-false}
+      # Rate limits (ticket 20). Identification: failed name+phone attempts before a lockout.
+      ADMISSION_REQUESTS_PER_MINUTE_PER_IP: ${ADMISSION_REQUESTS_PER_MINUTE_PER_IP:-30}
+      IDENTITY_FAILURES_PER_NAME: ${IDENTITY_FAILURES_PER_NAME:-5}
+      IDENTITY_FAILURES_PER_PHONE: ${IDENTITY_FAILURES_PER_PHONE:-5}
+      IDENTITY_FAILURES_GLOBAL: ${IDENTITY_FAILURES_GLOBAL:-30}
+      IDENTITY_FAILURE_WINDOW_SECONDS: ${IDENTITY_FAILURE_WINDOW_SECONDS:-600}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -74,6 +80,8 @@ services:
       CALL_MAX_SECONDS: ${CALL_MAX_SECONDS:-300}
       CALL_WARNING_SECONDS: ${CALL_WARNING_SECONDS:-270}
       TURN_LOG_PATH: /app/logs/voice-turns.jsonl
+      # In a deployed environment the worker refuses LiveKit's dev keys (devkey/secret).
+      DEPLOYED_ENVIRONMENT: ${DEPLOYED_ENVIRONMENT:-false}
     volumes:
       - ./logs:/app/logs
     depends_on:
@@ -93,6 +101,9 @@ services:
       BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
       # Number of reverse proxies of yours in front of this service (0: use the socket address).
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-0}
+      # Per-IP abuse throttle on POST /token (default 10 a minute), and the same deployed guard.
+      TOKEN_REQUESTS_PER_MINUTE_PER_IP: ${TOKEN_REQUESTS_PER_MINUTE_PER_IP:-10}
+      DEPLOYED_ENVIRONMENT: ${DEPLOYED_ENVIRONMENT:-false}
     ports:
       - "${WEB_PORT:-8002}:8002"
     depends_on:

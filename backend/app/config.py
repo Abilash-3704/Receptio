@@ -1,5 +1,9 @@
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+
+# Passwords that ship in this repository or are the usual guesses. Not a strength check.
+WEAK_DATABASE_PASSWORDS = {"", "receptio", "postgres", "password", "admin", "secret", "changeme"}
 
 
 class BackendSettings(BaseSettings):
@@ -52,8 +56,39 @@ class BackendSettings(BaseSettings):
     identity_failures_per_phone: int = Field(default=5, ge=1)
     identity_failures_global: int = Field(default=30, ge=1)
 
+    # Alert thresholds (backend/app/alerts.py). Latency defaults are the targets in
+    # docs/metrics.md (p50 800 ms, p95 1500 ms, speech end to first agent audio). A rule only
+    # judges a window holding at least its minimum sample.
+    alert_window_minutes: int = Field(default=15, ge=1)
+    alert_latency_p50_ms: int = 800
+    alert_latency_p95_ms: int = 1500
+    alert_min_turns: int = Field(default=10, ge=1)
+    alert_tool_failure_rate: float = Field(default=0.2, ge=0, le=1)
+    alert_min_tool_calls: int = Field(default=10, ge=1)
+    alert_dropped_call_rate: float = Field(default=0.5, ge=0, le=1)
+    alert_min_calls: int = Field(default=10, ge=1)
+
     @model_validator(mode="after")
     def _no_test_mode_when_deployed(self) -> "BackendSettings":
         if self.caps_test_mode and self.deployed_environment:
             raise ValueError("cap test mode cannot be enabled when DEPLOYED_ENVIRONMENT is set")
+        return self
+
+    @model_validator(mode="after")
+    def _no_development_defaults_when_deployed(self) -> "BackendSettings":
+        """A deployed backend refuses the development database credentials and demo controls."""
+        if not self.deployed_environment:
+            return self
+        if self.demo_controls_enabled:
+            raise ValueError("DEMO_CONTROLS_ENABLED cannot be set when DEPLOYED_ENVIRONMENT is set")
+        url = make_url(self.database_url)
+        if url.get_backend_name() != "sqlite" and (
+            url.username in (None, "postgres")
+            or (url.password or "").casefold() in WEAK_DATABASE_PASSWORDS
+        ):
+            raise ValueError(
+                "DATABASE_URL uses a development or missing database password or the postgres "
+                "superuser, which DEPLOYED_ENVIRONMENT refuses: create a dedicated role with a "
+                "generated password"
+            )
         return self

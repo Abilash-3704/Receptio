@@ -47,6 +47,6 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pyright]
-include = ["agent", "backend", "evals", "tests", "voice"]
+include = ["agent", "backend", "evals", "loadtest", "tests", "voice"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"

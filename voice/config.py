@@ -1,5 +1,7 @@
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+MIN_LIVEKIT_SECRET_LENGTH = 32
 
 
 class VoiceSettings(BaseSettings):
@@ -40,6 +42,26 @@ class VoiceSettings(BaseSettings):
     # cost guard). Requests over it get a 429 before the cost guard is asked, so they use up none
     # of anyone's daily allowance. A person clicking Start does not come near 10 a minute.
     token_requests_per_minute_per_ip: int = Field(default=10, ge=1)
+
+    # Set in every deployed environment (the same flag the backend reads). Makes the LiveKit
+    # development credentials impossible.
+    deployed_environment: bool = False
+
+    @model_validator(mode="after")
+    def _no_development_livekit_credentials_when_deployed(self) -> "VoiceSettings":
+        if not self.deployed_environment:
+            return self
+        if (
+            self.livekit_api_key in ("", "devkey")
+            or self.livekit_api_secret in ("", "secret")
+            or len(self.livekit_api_secret) < MIN_LIVEKIT_SECRET_LENGTH
+        ):
+            raise ValueError(
+                "LIVEKIT_API_KEY / LIVEKIT_API_SECRET are LiveKit's development credentials or "
+                f"shorter than {MIN_LIVEKIT_SECRET_LENGTH} characters, which DEPLOYED_ENVIRONMENT "
+                "refuses: generate real ones"
+            )
+        return self
 
     @property
     def browser_url(self) -> str:
