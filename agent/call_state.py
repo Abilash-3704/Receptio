@@ -76,6 +76,8 @@ class CallState:
     awaiting_read_back_answer: bool = False
     read_back_agreed: bool = False
     appointment_id: int | None = None
+    # The Hold that became the Confirmed Appointment above: a second confirm of it is a success.
+    confirmed_hold_id: int | None = None
     # Identification (ticket 08): the Patient's name and phone as the backend matched them, their
     # upcoming Appointments, the one in play, and the change waiting for a yes. None of this is
     # filled before both name and phone match.

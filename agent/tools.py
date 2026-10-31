@@ -465,6 +465,9 @@ class ToolBox:
         state = self._state
         if state.hold is None or state.patient_name is None or state.patient_phone is None:
             return ToolResult(False, {"error": "there is no Hold to confirm"})
+        if state.confirmed_hold_id == state.hold.id:
+            # Asked again after it worked: the Appointment exists, so say that, never "failed".
+            return ToolResult(True, {"confirmed": state.hold.offer.label, "already": True})
         if not state.read_back_agreed:
             # ADR-0001: only the state machine records the "yes". Without it the backend is
             # not even asked.
@@ -488,6 +491,7 @@ class ToolBox:
                 )
             raise
         state.appointment_id = appointment["id"]
+        state.confirmed_hold_id = state.hold.id
         try:
             self._post(f"/appointments/{appointment['id']}/confirmation-message", "message")
         except (BackendError, BackendUnavailable):

@@ -207,3 +207,23 @@ def test_the_llm_cannot_confirm_before_the_caller_has_answered_the_read_back(
     assert after.confirmed == before.confirmed
     assert after.held == before.held + 1  # the Hold is still there, nothing was confirmed
     assert after.messages == []
+
+
+def test_a_second_confirm_after_success_never_tells_the_caller_it_failed(
+    backend: httpx.Client,
+) -> None:
+    llm = book_up_to_read_back(
+        UseTool("confirm_appointment", {}),
+        UseTool("confirm_appointment", {}),  # the model asks again, as models do
+        Say("You're all booked."),
+    )
+    call = open_text_call(backend, llm=llm)
+    call.hear("A cleaning tomorrow please")
+    call.hear("The first one, for Priya Sharma, +91 98765 43210")
+
+    done = call.hear("Yes, that's right")
+
+    assert done == ["You're all booked."]
+    assert [t.ok for t in call.tool_calls if t.name == "confirm_appointment"] == [True, True]
+    assert len([a for a in final_state(backend).confirmed if a.patient == "Priya Sharma"]) == 1
+    assert len(final_state(backend).messages) == 1
