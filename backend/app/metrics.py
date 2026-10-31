@@ -49,13 +49,15 @@ def compute_metrics(session: Session) -> dict[str, Any]:
         "rate": round(outcomes.get("completed", 0) / ended, 4) if ended else None,
     }
 
-    latencies = list(
-        session.scalars(
+    latencies = [
+        ms
+        for ms in session.scalars(
             select(CallTurnTiming.total_from_speech_end_ms).where(
                 CallTurnTiming.total_from_speech_end_ms.is_not(None)
             )
         )
-    )
+        if ms is not None
+    ]
     latency: dict[str, Any] = {
         "metric": LATENCY_METRIC,
         "samples": len(latencies),

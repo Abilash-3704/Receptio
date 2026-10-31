@@ -231,8 +231,10 @@ class LlmCallIn(BaseModel):
     duration_ms: Annotated[int, Field(ge=0, le=10**7)] | None = None
 
 
-# A duration in milliseconds, bounded like `LlmCallIn.duration_ms` (and inside a 4-byte column).
-Millis = Annotated[int, Field(ge=0, le=10**7)]
+# A measured moment in milliseconds. It can be negative (the recogniser may finalise before the
+# voice activity detector sees speech end), so the bound is symmetric: about 2.8 hours, far
+# inside a 4-byte column, far beyond any real Call.
+Millis = Annotated[int, Field(ge=-(10**7), le=10**7)]
 
 
 class TurnTimingIn(BaseModel):

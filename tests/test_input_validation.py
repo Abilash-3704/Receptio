@@ -188,7 +188,7 @@ def test_every_call_and_hold_route_rejects_an_id_outside_the_database_range(
         "total_from_speech_end_ms",
     ],
 )
-@pytest.mark.parametrize("bad", [-1, 2**31, 10**30])
+@pytest.mark.parametrize("bad", [-(10**7) - 1, 10**7 + 1, 2**31, 10**30])
 def test_a_turn_timing_outside_a_sane_range_is_rejected_not_a_server_error(
     backend: httpx.Client, field: str, bad: int
 ) -> None:
@@ -197,5 +197,5 @@ def test_a_turn_timing_outside_a_sane_range_is_rejected_not_a_server_error(
     response = backend.post(f"/calls/{call_id}/turn-timings", json={field: bad})
 
     assert response.status_code == 422
-    ok = backend.post(f"/calls/{call_id}/turn-timings", json={field: 1500})
-    assert ok.status_code == 201
+    for fine in (1500, -20):  # a recogniser can finalise before speech end: negative is real
+        assert backend.post(f"/calls/{call_id}/turn-timings", json={field: fine}).status_code == 201
