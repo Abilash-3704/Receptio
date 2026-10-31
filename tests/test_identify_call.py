@@ -11,7 +11,7 @@ import pytest
 from agent.llm import Say, Step, UseTool
 from agent.scripted_llm import ScriptedLLM
 from agent.text_mode import TextCall, open_text_call
-from tests.support import FakeClock
+from tests.support import FakeClock, availability
 from tests.test_confirm_cancel_reschedule import booked, status_of
 
 ASHA = {"name": "Asha Menon", "phone": "+91 98450 12345"}
@@ -214,6 +214,35 @@ def test_a_reschedule_is_read_back_then_moves_the_appointment_on_yes(
     assert moved["id"] != original["id"] and moved["start"].startswith("2026-11-04")
     assert status_of(backend, original["id"]) == "cancelled"
     assert status_of(backend, moved["id"]) == "confirmed"
+
+
+def test_a_caller_who_changes_the_reschedule_time_frees_the_time_they_were_holding(
+    backend: httpx.Client,
+) -> None:
+    book_filling(backend)
+    before = availability(backend, "Filling", "2026-11-04")
+    call = call_with(
+        backend,
+        [
+            IDENTIFY_ASHA,
+            UseTool("start_reschedule"),
+            Say("Which day would you like to move it to?"),
+            UseTool("check_availability", {"service": "Filling", "date": "2026-11-04"}),
+            Say("I can do {offered[0]}. Does that suit?"),
+            UseTool("place_hold", {"option": 1}),
+            UseTool("read_back"),
+            UseTool("check_availability", {"service": "Filling", "date": "2026-11-03"}),
+            Say("Then on Tuesday I can do {offered[0]}."),
+        ],
+    )
+    call.hear("Move my appointment. Asha Menon, +91 98450 12345")
+    call.hear("Wednesday")
+    call.hear("That one")
+    assert availability(backend, "Filling", "2026-11-04") != before  # the Hold blocks it
+
+    call.hear("Actually, can we look at Tuesday instead?")
+
+    assert availability(backend, "Filling", "2026-11-04") == before  # released, not left to lapse
 
 
 def test_a_reschedule_that_falls_through_keeps_the_original(

@@ -246,12 +246,20 @@ class ToolBox:
             return None
         return {"patient_name": name, "patient_phone": phone}
 
+    def _release_body(self) -> dict[str, str] | None:
+        """A reschedule Hold is released as the identified Patient; a new booking's has no owner."""
+        state = self._state
+        if state.rescheduling and state.identity is not None:
+            name, phone = state.identity
+            return {"patient_name": name, "patient_phone": phone}
+        return None
+
     def _release_live_hold(self) -> None:
         """The Caller changed their mind: free the old Hold before a new one is placed."""
         state = self._state
         if state.hold is not None:
             try:
-                self._post(f"/holds/{state.hold.id}/release", "release")
+                self._post(f"/holds/{state.hold.id}/release", "release", self._release_body())
             except (BackendError, BackendUnavailable):
                 pass  # gone already, or it lapses on its own: the time is free either way
             state.hold = None
@@ -495,7 +503,7 @@ class ToolBox:
         hold = self._state.hold
         if hold is not None:
             try:
-                self._post(f"/holds/{hold.id}/release", "release")
+                self._post(f"/holds/{hold.id}/release", "release", self._release_body())
             except (BackendError, BackendUnavailable):
                 pass
         self._state.abandon_scheduling()

@@ -112,20 +112,33 @@ def _lock_hold_for(
         raise reject(403, IDENTIFICATION_FAILED)
     lock_provider(session, hold.provider_id)
     session.refresh(hold, with_for_update=True)
-    if hold.replaces_id is not None:
-        if identity is None:
-            raise reject(403, IDENTIFICATION_FAILED)
-        patient = identify(session, *identity)
-        original = session.get(AppointmentRecord, hold.replaces_id)
-        if original is None or original.patient_id != patient.id:
-            raise reject(403, IDENTIFICATION_FAILED)
+    _require_owner(session, hold, identity)
     return hold
 
 
-def release_hold(session: Session, hold_id: int, now: datetime) -> AppointmentRecord:
+def _require_owner(
+    session: Session, hold: AppointmentRecord, identity: tuple[str, str] | None
+) -> None:
+    """A reschedule Hold belongs to the Patient of the Appointment it replaces. A Hold for a new
+    booking has no owner yet: whoever holds the service token (the agent) may act on it."""
+    if hold.replaces_id is None:
+        return
+    if identity is None:
+        raise reject(403, IDENTIFICATION_FAILED)
+    patient = identify(session, *identity)
+    original = session.get(AppointmentRecord, hold.replaces_id)
+    if original is None or original.patient_id != patient.id:
+        raise reject(403, IDENTIFICATION_FAILED)
+
+
+def release_hold(
+    session: Session, hold_id: int, identity: tuple[str, str] | None, now: datetime
+) -> AppointmentRecord:
     """Free a Hold's time before it expires, for example when the Caller changes their mind.
-    Releasing a Hold that is already released changes nothing."""
+    Releasing a Hold that is already released changes nothing. A reschedule Hold is released
+    only for its Patient (name and phone, as for confirm); an unknown Hold is a 404."""
     hold = _lock_hold(session, hold_id)
+    _require_owner(session, hold, identity)
     if hold.status == "confirmed":
         raise reject(409, "a confirmed Appointment is not a Hold: cancel it instead")
     if hold.status == "held":
