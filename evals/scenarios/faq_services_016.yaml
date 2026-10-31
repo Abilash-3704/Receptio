@@ -1,6 +1,7 @@
 id: faq_services_016
 description: FAQ, Services.
 persona: curious_caller
+category: faq
 turns:
   - "What services do you offer?"
 agent_script:

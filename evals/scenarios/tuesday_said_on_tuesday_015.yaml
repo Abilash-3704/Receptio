@@ -1,6 +1,7 @@
 id: tuesday_said_on_tuesday_015
 description: "'Tuesday' said on a Tuesday could mean today or a week away: the agent has the Caller agree to the exact date aloud before Availability is checked"
 persona: polite_rushed
+category: ambiguous_time
 caller_goal: "It is Tuesday morning. You ask for a check-up 'Tuesday' (say only that word) and mean next week's Tuesday, 10 November. Confirm that date when asked. You are Neha Kapoor, phone +91 98450 22222. Take the first time offered and agree to the read-back."
 now: "2026-11-03T09:00:00+05:30"
 turns:

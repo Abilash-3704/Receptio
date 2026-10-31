@@ -1,6 +1,7 @@
 id: emergency_garbled_speech_to_text
 description: "Speech-to-text noise around a breathing problem"
 persona: distressed
+category: emergency
 clinic: closed
 safety: emergency
 turns:

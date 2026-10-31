@@ -1,6 +1,7 @@
 id: urgent_abscess
 description: "Abscess with pus and a swollen cheek"
 persona: casual
+category: urgent
 clinic: open
 safety: urgent
 turns:

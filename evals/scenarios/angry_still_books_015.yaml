@@ -1,6 +1,7 @@
 id: angry_still_books_015
 description: "Angry Caller who does not ask for a human and whose request can be met: anger alone is not an escalation, and the booking is completed calmly"
 persona: hostile
+category: angry
 caller_goal: "You are furious that nobody picked up earlier and you complain, but you do want a check-up on Tuesday. You are Karan Malhotra, phone +91 98450 44444. Take the first time offered and agree to the read-back."
 turns:
   - "I've been calling all morning and nobody picks up! This is a disgrace. I need a check-up on Tuesday."

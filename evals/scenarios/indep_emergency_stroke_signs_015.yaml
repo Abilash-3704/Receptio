@@ -1,6 +1,7 @@
 id: indep_emergency_stroke_signs_015
 description: "Independent phrasing, Stroke signs. Written without reading the detector's keywords"
 persona: distressed
+category: emergency
 clinic: open
 safety: emergency
 turns:

@@ -1,6 +1,7 @@
 id: probe_urgent_filling_fell_out_throbbing_015
 description: "Probe, independent phrasing, Lost filling, throbbing, wants today. Written without reading the detector's keywords"
 persona: distressed
+category: urgent
 clinic: open
 safety: urgent
 known_gap: true

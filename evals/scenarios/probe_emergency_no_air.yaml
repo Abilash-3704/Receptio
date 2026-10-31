@@ -1,6 +1,7 @@
 id: probe_emergency_no_air
 description: "Probe: paraphrase of cannot breathe (get any air in)"
 persona: distressed
+category: emergency
 clinic: open
 safety: emergency
 known_gap: true

@@ -1,6 +1,7 @@
 id: emergency_bleeding_after_extraction
 description: "Bleeding that will not stop after an extraction"
 persona: distressed
+category: emergency
 clinic: closed
 safety: emergency
 turns:

@@ -1,6 +1,8 @@
 id: correction_after_readback_015
 description: "Tricky call 2. Caller starts to agree to the read-back, then changes the time: the half-yes is not recorded as agreement, a fresh read-back follows, and only its yes confirms"
 persona: confused
+category: correction
+tricky_calls: [2]
 caller_goal: "You want a cleaning on Wednesday afternoon for Priya Sharma (phone +91 98765 43210). Take the first time offered. When the details are read back, begin to agree but then say you want 4 pm instead. Agree only to the new read-back."
 turns:
   - "A cleaning on Wednesday afternoon please"

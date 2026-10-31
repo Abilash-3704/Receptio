@@ -1,6 +1,8 @@
 id: interruption_second_one_015
 description: "Tricky call 5. Caller cuts in with 'the second one' after hearing only the first of the times: it is resolved against the options actually offered and read back before anything is confirmed. (Speech stopping on barge-in is voice behaviour, ticket 16.)"
 persona: rushed
+category: interruption
+tricky_calls: [5]
 caller_goal: "You want a cleaning on Tuesday. You interrupt the list of times and say you want the second one. You are Neha Kapoor, phone +91 98450 22222. Agree to the read-back."
 turns:
   - "A cleaning on Tuesday"

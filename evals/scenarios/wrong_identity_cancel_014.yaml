@@ -1,6 +1,8 @@
 id: wrong_identity_cancel_014
 description: Tricky call 14. Caller gives a correct name but the wrong phone number, twice. Nothing is revealed, the Appointment is untouched, and a Callback Request is taken
 persona: confused
+category: identification
+tricky_calls: [14]
 clinic: closed
 turns:
   - "I want to cancel my appointment. I'm Seeded Patient, number 98450 99999"

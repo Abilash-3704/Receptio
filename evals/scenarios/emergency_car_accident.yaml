@@ -1,6 +1,7 @@
 id: emergency_car_accident
 description: "Car accident with a broken jaw"
 persona: distressed
+category: emergency
 clinic: closed
 safety: emergency
 turns:

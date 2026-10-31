@@ -1,6 +1,8 @@
 id: unusual_name_spelling_015
 description: "Tricky call 6. A long uncommon name is heard imperfectly; the agent asks for the spelling and the number digit by digit, and the Appointment is recorded under the corrected name"
 persona: patient
+category: name_handling
+tricky_calls: [6]
 caller_goal: "You want a cleaning on Tuesday. Your name is Venkatanarasimharaju Subramanyeswara and your phone is 98450 12347. When the agent is unsure of the name, spell it letter by letter, and say the number one digit at a time. Take the first time offered and agree to the read-back."
 turns:
   - "A cleaning on Tuesday please"

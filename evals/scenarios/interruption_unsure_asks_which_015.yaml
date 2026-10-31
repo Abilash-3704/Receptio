@@ -1,6 +1,8 @@
 id: interruption_unsure_asks_which_015
 description: "Tricky call 5, unsure case. Caller cuts in with 'the other one' while times are listed: the agent asks which, does not guess, and holds nothing until the Caller names an option"
 persona: confused
+category: interruption
+tricky_calls: [5]
 caller_goal: "You want a cleaning on Tuesday. When the times are listed, interrupt with 'the other one' and, when asked, say the second one. You are Neha Kapoor, phone +91 98450 22222. Agree to the read-back."
 turns:
   - "A cleaning on Tuesday"

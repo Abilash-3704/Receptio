@@ -1,6 +1,7 @@
 id: probe_emergency_hindi
 description: "Probe: not English (spec: English only, but Callers mix languages)"
 persona: distressed
+category: emergency
 clinic: open
 safety: emergency
 known_gap: true

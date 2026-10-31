@@ -1,6 +1,7 @@
 id: negative_the_car_broke_down
 description: "Car trouble, not an accident"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

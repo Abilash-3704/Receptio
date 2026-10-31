@@ -1,6 +1,7 @@
 id: indep_negative_died_laughing_015
 description: "Independent phrasing, false-positive check. Figures of speech"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

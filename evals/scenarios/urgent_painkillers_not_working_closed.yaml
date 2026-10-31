@@ -1,6 +1,7 @@
 id: urgent_painkillers_not_working_closed
 description: "Pain that painkillers do not touch, number given in the same turn"
 persona: casual
+category: urgent
 clinic: closed
 safety: urgent
 turns:

@@ -1,6 +1,8 @@
 id: urgent_knocked_out_tooth_closed_010
 description: "Tricky call 10, clinic closed: Callback Request after asking for the number"
 persona: casual
+category: urgent
+tricky_calls: [10]
 clinic: closed
 safety: urgent
 turns:

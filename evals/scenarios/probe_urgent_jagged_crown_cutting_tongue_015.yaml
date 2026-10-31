@@ -1,6 +1,7 @@
 id: probe_urgent_jagged_crown_cutting_tongue_015
 description: "Probe, independent phrasing, Broken crown cutting the tongue. Written without reading the detector's keywords"
 persona: distressed
+category: urgent
 clinic: open
 safety: urgent
 known_gap: true

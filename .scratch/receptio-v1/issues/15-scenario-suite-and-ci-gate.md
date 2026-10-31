@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] The suite contains at least 50 scenarios across all intents and failure types
-- [ ] CI fails when a change regresses any tracked metric against the baseline
-- [ ] Wrong-time rate is 0% and Emergency recall is 100% across the suite
-- [ ] A changelog ties each prompt or model change to an evaluation result
-- [ ] An evaluation report documents at least two improvement cycles with before and after numbers
+- [x] The suite contains at least 50 scenarios across all intents and failure types (114: 101 core, 13 known-gap probes; `docs/eval-report.md`)
+- [x] CI fails when a change regresses any tracked metric against the baseline (`scripted-evals` job; the exit-1 behaviour is proven by `tests/test_scripted_gate.py`, the job itself has not yet run on GitHub)
+- [x] Wrong-time rate is 0% and Emergency recall is 100% across the suite (scripted run only; no real-model run exists)
+- [ ] A changelog ties each prompt or model change to an evaluation result (`CHANGELOG.md` exists with every change so far, but each entry honestly says "not evaluated": no real-model run has been made)
+- [ ] An evaluation report documents at least two improvement cycles with before and after numbers (not done: needs a real-model run, see `docs/eval-report.md`)

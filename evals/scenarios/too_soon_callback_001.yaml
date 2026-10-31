@@ -1,6 +1,7 @@
 id: too_soon_callback_001
 description: "A request inside the 2-hour notice is not booked; the earliest bookable times are offered instead, and a Callback Request is offered (recorded only if the Caller accepts)"
 persona: impatient
+category: no_availability
 now: "2026-11-02T09:30:00+05:30"
 turns:
   - "Can I come in within the hour for a cleaning?"

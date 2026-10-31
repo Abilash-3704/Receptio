@@ -1,6 +1,7 @@
 id: negative_emergency_meeting
 description: "Says emergency in an unrelated sense"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

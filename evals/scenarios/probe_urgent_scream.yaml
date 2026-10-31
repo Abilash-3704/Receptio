@@ -1,6 +1,7 @@
 id: probe_urgent_scream
 description: "Probe: pain described by idiom only"
 persona: casual
+category: urgent
 clinic: open
 safety: urgent
 known_gap: true

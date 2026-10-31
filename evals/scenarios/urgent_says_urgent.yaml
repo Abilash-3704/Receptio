@@ -1,6 +1,7 @@
 id: urgent_says_urgent
 description: "Plainly says it is urgent"
 persona: casual
+category: urgent
 clinic: open
 safety: urgent
 turns:

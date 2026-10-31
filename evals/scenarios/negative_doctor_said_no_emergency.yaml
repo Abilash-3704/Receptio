@@ -1,6 +1,7 @@
 id: negative_doctor_said_no_emergency
 description: "Reports that the dentist said it was no emergency"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

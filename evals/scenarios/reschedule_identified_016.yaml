@@ -1,6 +1,7 @@
 id: reschedule_identified_016
 description: Caller is identified, picks a new time, hears the move read back, says yes. The old Appointment is cancelled in the same step the new one is confirmed
 persona: polite_rushed
+category: identification
 caller_goal: "You want to move your existing appointment to Wednesday. Your name is Seeded Patient and your phone number is +910000000000. Take the first Wednesday time offered and agree when the move is read back."
 turns:
   - "I need to move my appointment to Wednesday. Seeded Patient, +910000000000"

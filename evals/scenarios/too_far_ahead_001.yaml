@@ -1,6 +1,7 @@
 id: too_far_ahead_001
 description: "Nothing is booked more than 60 days ahead"
 persona: polite_rushed
+category: no_availability
 turns:
   - "I'd like a check-up in 70 days"
 agent_script:

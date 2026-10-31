@@ -1,6 +1,7 @@
 id: identify_recovers_after_one_failure_015
 description: "One failed identification is not an escalation: the Caller mis-says the number once, corrects it, is identified, and the cancellation goes through with no Escalation"
 persona: confused
+category: identification
 caller_goal: "You ask to cancel your appointment. First you give the wrong phone number (98450 99999), then correct it to +910000000000. Your name is Seeded Patient. Agree to the cancellation read-back."
 turns:
   - "Cancel my appointment please. Seeded Patient, 98450 99999"

@@ -1,6 +1,7 @@
 id: book_after_hours_call_015
 description: "A Call at 20:00 on a Sunday, with the clinic closed: booking for the next working day is ordinary self-service and needs no staff, no Escalation"
 persona: polite_rushed
+category: happy_path
 clinic: closed
 now: "2026-11-01T20:00:00+05:30"
 caller_goal: "You ring on Sunday evening and want a cleaning tomorrow. You are Karan Malhotra, phone +91 98450 44444. Take the first time offered and agree to the read-back."

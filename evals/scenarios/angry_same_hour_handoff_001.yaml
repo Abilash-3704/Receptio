@@ -1,6 +1,8 @@
 id: angry_same_hour_handoff_001
 description: Tricky call 8, clinic open. Caller demands an Appointment inside two hours, turns hostile and insists on a human; the agent stays calm and starts a Handoff
 persona: angry_demanding
+category: angry
+tricky_calls: [8]
 clinic: open
 turns:
   - "I need a cleaning within the next hour. Right now."

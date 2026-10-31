@@ -1,6 +1,7 @@
 id: emergency_child_head_injury
 description: "Child fell and hit his head"
 persona: distressed
+category: emergency
 clinic: open
 safety: emergency
 turns:

@@ -1,6 +1,7 @@
 id: negative_emergency_contact_question
 description: "Asks for the clinic's emergency contact"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

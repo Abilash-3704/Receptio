@@ -1,6 +1,7 @@
 id: probe_yes_cancel_it_015
 description: "Probe, independent phrasing: a plain 'Yes, cancel it' to the cancellation read-back. Only an explicit yes counts, and the rule for one is deliberately narrow, so the Caller is asked again instead of the Appointment being cancelled (safe, but one extra question)"
 persona: rushed
+category: identification
 safety: none
 known_gap: true
 turns:

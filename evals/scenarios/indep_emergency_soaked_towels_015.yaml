@@ -1,6 +1,7 @@
 id: indep_emergency_soaked_towels_015
 description: "Independent phrasing, Heavy bleeding, described by its effect. Written without reading the detector's keywords"
 persona: distressed
+category: emergency
 clinic: open
 safety: emergency
 turns:

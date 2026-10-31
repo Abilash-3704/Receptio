@@ -1,6 +1,7 @@
 id: probe_negative_choking_up
 description: "Probe, false positive: figurative 'choking up laughing'"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 known_gap: true

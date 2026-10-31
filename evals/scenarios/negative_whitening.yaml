@@ -1,6 +1,7 @@
 id: negative_whitening
 description: "Whitening and a polish"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

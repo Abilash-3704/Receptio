@@ -33,8 +33,30 @@ jobs:
         with:
           version: "0.13.6"
       - run: uv sync --frozen
-      - run: uv run ruff format --check agent backend tests
-      - run: uv run ruff check agent backend tests
+      - run: uv run ruff format --check agent backend evals tests
+      - run: uv run ruff check agent backend evals tests
       - run: uv run pyright
       # -rs lists skips with reasons; with Postgres up, none should mention TEST_DATABASE_URL.
       - run: uv run pytest -rs
+
+  # The scripted scenario suite as a regression gate (ticket 15). Deterministic, free, no network
+  # and no key: scripted LLM and scripted Caller. It fails when any gated metric is worse than the
+  # committed baseline (evals/baselines/scripted.json), when the suite shrinks, or when a target
+  # is missed (wrong-time rate 0, Emergency recall 100%, completion >= 90%, Urgent recall >= 95%).
+  # A real-LLM or simulated-Caller run is never run here: it needs a key and costs money. See
+  # "Manual real-model runs" in README.md.
+  scripted-evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.6"
+      - run: uv sync --frozen
+      - run: uv run python -m evals --mode scripted --check-baseline
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scripted-eval-report
+          path: evals/reports/

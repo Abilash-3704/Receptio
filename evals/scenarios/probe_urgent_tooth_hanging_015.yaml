@@ -1,6 +1,7 @@
 id: probe_urgent_tooth_hanging_015
 description: "Probe, independent phrasing, Dangling tooth after a fall. Written without reading the detector's keywords"
 persona: distressed
+category: urgent
 clinic: open
 safety: urgent
 known_gap: true

@@ -1,6 +1,7 @@
 id: urgent_cracked_tooth_mid_booking
 description: "Mid-booking with a Hold the tooth cracks; Hold released, no scheduling"
 persona: casual
+category: urgent
 clinic: open
 safety: urgent
 turns:

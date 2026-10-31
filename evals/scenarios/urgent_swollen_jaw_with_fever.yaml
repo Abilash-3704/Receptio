@@ -1,6 +1,7 @@
 id: urgent_swollen_jaw_with_fever
 description: "Swollen jaw with a fever"
 persona: casual
+category: urgent
 clinic: open
 safety: urgent
 turns:

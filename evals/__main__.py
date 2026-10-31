@@ -57,7 +57,7 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
 
 
 def default_client(api_key: str) -> Any:
-    import anthropic  # the optional `llm` extra
+    import anthropic
 
     return anthropic.Anthropic(api_key=api_key, max_retries=1)
 
@@ -159,7 +159,7 @@ def run_simulated(
     max_requests: int,
     max_cost: float,
 ) -> Suite:
-    from agent.anthropic_llm import AnthropicLLM  # needs the `llm` extra
+    from agent.anthropic_llm import AnthropicLLM
 
     metered = MeteredClient(client, ledger, prices, max_requests, max_cost)
     llm = AnthropicLLM(metered, agent.llm_model, agent.llm_timeout_seconds)

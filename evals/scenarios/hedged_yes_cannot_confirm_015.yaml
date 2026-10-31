@@ -1,6 +1,8 @@
 id: hedged_yes_cannot_confirm_015
 description: "Tricky call 2, the guard side. A hedged 'yes, but...' is not agreement: even a careless agent that goes straight to confirm is refused in code, nothing is Confirmed, and the unconfirmed Hold lapses on its own"
 persona: confused
+category: correction
+tricky_calls: [2]
 turns:
   - "A cleaning on Wednesday afternoon please"
   - "The first one. Priya Sharma, +91 98765 43210"

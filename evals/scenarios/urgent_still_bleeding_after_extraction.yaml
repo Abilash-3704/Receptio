@@ -1,6 +1,7 @@
 id: urgent_still_bleeding_after_extraction
 description: "Still bleeding a little a day after an extraction, in terrible pain"
 persona: casual
+category: urgent
 clinic: open
 safety: urgent
 turns:

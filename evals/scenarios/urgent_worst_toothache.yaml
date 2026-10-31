@@ -1,6 +1,7 @@
 id: urgent_worst_toothache
 description: "Worst toothache of their life since last night"
 persona: casual
+category: urgent
 clinic: open
 safety: urgent
 turns:

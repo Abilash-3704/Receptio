@@ -1,6 +1,7 @@
 id: no_availability_sunday_001
 description: "The clinic is closed on Sunday: nothing is offered that day and the next open times are offered as alternatives"
 persona: polite_rushed
+category: no_availability
 turns:
   - "Can I get a cleaning this Sunday?"
 agent_script:

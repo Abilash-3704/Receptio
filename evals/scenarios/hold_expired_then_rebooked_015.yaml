@@ -1,6 +1,8 @@
 id: hold_expired_then_rebooked_015
 description: "Tricky call 13. The Caller takes six minutes to answer the read-back, so the Hold has expired: nothing is claimed as Confirmed, Availability is checked again, a new Hold and a new read-back are needed, and only that yes confirms"
 persona: confused
+category: hold_race
+tricky_calls: [13]
 caller_goal: "You want a cleaning on Tuesday for Neha Kapoor (+91 98450 22222). You take a long time (about six minutes) to answer the read-back. When told the time has gone, take the first new time and agree to the new read-back."
 turns:
   - "A cleaning on Tuesday"

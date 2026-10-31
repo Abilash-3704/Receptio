@@ -1,6 +1,8 @@
 id: correction_thursday_001
 description: "Tricky call 1. Caller asks for Tuesday afternoon, gets a Hold, then says actually Thursday: the Tuesday Hold is released and only Thursday is booked"
 persona: polite_rushed
+category: correction
+tricky_calls: [1]
 caller_goal: "You want a cleaning for Priya Sharma (phone +91 98765 43210), first for Tuesday afternoon. After a time is held for you, change your mind: Thursday instead. Take the first Thursday time offered and agree when the details are read back."
 turns:
   - "Hi, I'd like a cleaning on Tuesday afternoon"

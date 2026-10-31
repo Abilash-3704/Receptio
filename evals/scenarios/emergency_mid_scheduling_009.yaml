@@ -1,6 +1,8 @@
 id: emergency_mid_scheduling_009
 description: "Tricky call 9, clinic open. Mid-booking with a Hold in place the Caller cannot breathe and their face is swelling badly. Fixed script, Hold released, Handoff, scheduling never resumes"
 persona: distressed
+category: emergency
+tricky_calls: [9]
 clinic: open
 safety: emergency
 turns:

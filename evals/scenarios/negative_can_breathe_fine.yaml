@@ -1,6 +1,7 @@
 id: negative_can_breathe_fine
 description: "Says explicitly they can breathe fine"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

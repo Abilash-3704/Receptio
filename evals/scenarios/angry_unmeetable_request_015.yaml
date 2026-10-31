@@ -1,6 +1,8 @@
 id: angry_unmeetable_request_015
 description: Tricky call 8 without the Escalation step (ticket 07 adds it). Angry Caller wants a time that does not exist; the agent stays calm and offers real alternatives only.
 persona: angry_hostile
+category: angry
+tricky_calls: [8]
 turns:
   - "I want a cleaning this Sunday at 3pm. This is ridiculous, why can't you just book it?"
   - "Useless. I'm not waiting until Monday."

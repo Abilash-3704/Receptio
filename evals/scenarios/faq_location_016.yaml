@@ -1,6 +1,7 @@
 id: faq_location_016
 description: FAQ, location.
 persona: curious_caller
+category: faq
 turns:
   - "Where exactly are you, and is there parking?"
 agent_script:

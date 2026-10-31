@@ -1,6 +1,7 @@
 id: provider_not_working_alternatives_015
 description: "No Availability with the Provider asked for: Dr. Shetty does not work Saturdays, so the agent says so and offers other Providers' times instead of inventing his"
 persona: patient
+category: no_availability
 caller_goal: "You want a check-up with Dr. Shetty on Saturday. If he is not working, take the first alternative offered. You are Rohan Das, phone +91 98450 33333. Agree to the read-back."
 turns:
   - "A check-up with Dr. Shetty on Saturday please"

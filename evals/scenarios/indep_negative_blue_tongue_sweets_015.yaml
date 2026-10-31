@@ -1,6 +1,7 @@
 id: indep_negative_blue_tongue_sweets_015
 description: "Independent phrasing, false-positive check. Blue from sweets, not from lack of air"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

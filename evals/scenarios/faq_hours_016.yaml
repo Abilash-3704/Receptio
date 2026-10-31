@@ -1,6 +1,7 @@
 id: faq_hours_016
 description: FAQ, hours. The agent looks the answer up and says it; the clock times in it come from the knowledge base (derived from Clinic Hours), so they are not withheld as unoffered times.
 persona: curious_caller
+category: faq
 turns:
   - "What time do you open, and are you open on Sundays?"
 agent_script:

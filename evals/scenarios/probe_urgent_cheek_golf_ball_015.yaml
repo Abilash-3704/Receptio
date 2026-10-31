@@ -1,6 +1,7 @@
 id: probe_urgent_cheek_golf_ball_015
 description: "Probe, independent phrasing, Cheek swelling by comparison. Written without reading the detector's keywords"
 persona: distressed
+category: urgent
 clinic: open
 safety: urgent
 known_gap: true

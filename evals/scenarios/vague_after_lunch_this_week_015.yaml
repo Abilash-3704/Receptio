@@ -1,6 +1,8 @@
 id: vague_after_lunch_this_week_015
 description: "Tricky call 4. Caller gives only 'after lunch, sometime this week': the agent searches the window with a tool and offers only times Availability returned, inside Clinic Hours and the booking window"
 persona: casual
+category: ambiguous_time
+tricky_calls: [4]
 caller_goal: "You want a check-up 'after lunch, sometime this week' and give no day. You are Neha Kapoor, phone +91 98450 22222. Take the first time offered and agree to the read-back."
 turns:
   - "I'd like a check-up sometime this week, after lunch"

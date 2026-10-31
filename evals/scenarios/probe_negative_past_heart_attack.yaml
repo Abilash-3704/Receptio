@@ -1,6 +1,7 @@
 id: probe_negative_past_heart_attack
 description: "Probe, false positive: a past medical event mentioned as background"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 known_gap: true

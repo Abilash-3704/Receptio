@@ -1,6 +1,7 @@
 id: human_requested_mid_booking_015
 description: "Caller asks for a person while a Hold is in place and the clinic is open: a Handoff with a reason is made, nothing is confirmed, and the unconfirmed Hold lapses on its own"
 persona: hostile
+category: escalation
 clinic: open
 caller_goal: "You ask for a cleaning on Tuesday and take the first time, then get impatient and say you want to speak to a real person."
 turns:

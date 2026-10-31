@@ -1,6 +1,8 @@
 id: late_yes_after_expiry_books_nothing_015
 description: "Tricky call 13, the guard side. A 'yes' that arrives after the Hold expired is not recorded, and an agent that tries to confirm anyway is refused: no Appointment, no Patient record, no live Hold"
 persona: confused
+category: hold_race
+tricky_calls: [13]
 turns:
   - "A cleaning on Tuesday"
   - "The first one. Neha Kapoor, +91 98450 22222"

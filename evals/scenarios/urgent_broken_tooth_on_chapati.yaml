@@ -1,6 +1,7 @@
 id: urgent_broken_tooth_on_chapati
 description: "Broke a tooth"
 persona: casual
+category: urgent
 clinic: open
 safety: urgent
 turns:

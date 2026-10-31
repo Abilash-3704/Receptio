@@ -1,6 +1,7 @@
 id: faq_insurance_016
 description: FAQ, insurance accepted.
 persona: curious_caller
+category: faq
 turns:
   - "Do you take Star Health insurance?"
 agent_script:

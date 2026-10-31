@@ -1,6 +1,7 @@
 id: emergency_swelling_spreading
 description: "Jaw swelling spreading to the neck, cannot swallow"
 persona: distressed
+category: emergency
 clinic: open
 safety: emergency
 turns:

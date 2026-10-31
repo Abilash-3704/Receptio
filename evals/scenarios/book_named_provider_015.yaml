@@ -1,6 +1,7 @@
 id: book_named_provider_015
 description: "Happy path with a Provider preference: the Caller asks for Dr. Shetty and only that Provider's times are offered"
 persona: polite_rushed
+category: happy_path
 caller_goal: "You want a check-up with Dr. Shetty on Tuesday. You are Rohan Das, phone +91 98450 33333. Take the first time offered and agree to the read-back."
 turns:
   - "A check-up with Dr. Shetty on Tuesday please"

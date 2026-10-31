@@ -1,6 +1,7 @@
 id: vague_no_day_asks_day_015
 description: "Caller gives a time of day and no day at all: the tool refuses to guess, the agent asks which day, and nothing is searched or held until the Caller says"
 persona: casual
+category: ambiguous_time
 caller_goal: "You want a cleaning 'in the afternoon' and do not say which day until asked, then say Thursday. You are Neha Kapoor, phone +91 98450 22222. Take the first time offered and agree to the read-back."
 turns:
   - "A cleaning in the afternoon please"

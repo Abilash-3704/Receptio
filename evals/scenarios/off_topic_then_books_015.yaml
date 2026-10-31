@@ -1,6 +1,7 @@
 id: off_topic_then_books_015
 description: "Off-topic chat, one polite redirect, and then the Caller gets on with a real booking: the redirect does not derail the Call"
 persona: chatty_off_topic
+category: off_topic
 caller_goal: "You start by chatting about the traffic and the weather. After one redirect, ask for a cleaning on Tuesday. You are Karan Malhotra, phone +91 98450 44444. Take the first time offered and agree to the read-back."
 turns:
   - "Terrible traffic on the way to work today, wasn't it? And so hot!"

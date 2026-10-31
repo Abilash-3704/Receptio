@@ -1,6 +1,7 @@
 id: urgent_then_emergency_015
 description: "An Urgent Case becomes an Emergency: the Caller first describes a knocked-out tooth (Urgent, no script) and then says they cannot breathe. The 112 script is delivered at that point and the Escalation stays a single one"
 persona: distressed
+category: emergency
 clinic: open
 safety: emergency
 turns:

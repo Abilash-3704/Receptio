@@ -1,6 +1,7 @@
 id: negative_bleeding_gums_flossing
 description: "Gums bleed a little when flossing"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

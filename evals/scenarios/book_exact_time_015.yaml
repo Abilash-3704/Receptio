@@ -1,6 +1,7 @@
 id: book_exact_time_015
 description: "Happy path with one specific time ('at 4 pm'): the nearest open times from then on are offered, not an invented 4 pm"
 persona: rushed
+category: happy_path
 caller_goal: "You want a filling on Wednesday at 4 pm. You are Rohan Das, phone +91 98450 33333. Take the first time offered and agree to the read-back."
 turns:
   - "A filling on Wednesday at 4 pm"

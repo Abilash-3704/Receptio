@@ -1,6 +1,8 @@
 id: emergency_mid_scheduling_closed_009
 description: "Tricky call 9, clinic closed. Same, with the Callback Request path"
 persona: distressed
+category: emergency
+tricky_calls: [9]
 clinic: closed
 safety: emergency
 turns:

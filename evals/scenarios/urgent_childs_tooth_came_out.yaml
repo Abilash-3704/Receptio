@@ -1,6 +1,7 @@
 id: urgent_childs_tooth_came_out
 description: "Child's tooth came out after a fall"
 persona: casual
+category: urgent
 clinic: open
 safety: urgent
 turns:

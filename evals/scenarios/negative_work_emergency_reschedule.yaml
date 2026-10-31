@@ -1,6 +1,7 @@
 id: negative_work_emergency_reschedule
 description: "Work emergency forces a reschedule"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

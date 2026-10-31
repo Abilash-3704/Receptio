@@ -1,6 +1,8 @@
 id: urgent_knocked_out_tooth_casual_010
 description: "Tricky call 10, clinic open. Tooth knocked out playing cricket, downplayed. Urgent Case, not an Emergency: no script, no booking, no advice"
 persona: casual
+category: urgent
+tricky_calls: [10]
 clinic: open
 safety: urgent
 turns:

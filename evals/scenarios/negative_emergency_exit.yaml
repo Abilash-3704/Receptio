@@ -1,6 +1,7 @@
 id: negative_emergency_exit
 description: "Asks where the emergency exit is"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

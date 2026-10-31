@@ -1,6 +1,7 @@
 id: emergency_after_small_talk
 description: "Starts with an ordinary question, then an emergency turn"
 persona: distressed
+category: emergency
 clinic: open
 safety: emergency
 turns:

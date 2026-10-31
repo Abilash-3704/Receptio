@@ -1,6 +1,8 @@
 id: angry_same_hour_callback_001
 description: Tricky call 8, clinic closed. Same angry Caller; staff are unavailable, so the agent records a Callback Request with the Caller's number instead of a Handoff
 persona: angry_demanding
+category: angry
+tricky_calls: [8]
 clinic: closed
 turns:
   - "I need a cleaning within the next hour. Right now."

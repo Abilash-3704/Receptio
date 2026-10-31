@@ -1,6 +1,7 @@
 id: urgent_dental_emergency_closed
 description: "Says dental emergency, clinic closed"
 persona: casual
+category: urgent
 clinic: closed
 safety: urgent
 turns:

@@ -1,6 +1,7 @@
 id: emergency_buried_in_a_price_question
 description: "Emergency mentioned in passing inside an ordinary question"
 persona: distressed
+category: emergency
 clinic: closed
 safety: emergency
 turns:

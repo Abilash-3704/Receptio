@@ -1,6 +1,7 @@
 id: indep_emergency_wont_wake_015
 description: "Independent phrasing, Relative who will not wake. Written without reading the detector's keywords"
 persona: distressed
+category: emergency
 clinic: open
 safety: emergency
 turns:

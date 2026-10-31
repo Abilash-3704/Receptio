@@ -1,6 +1,7 @@
 id: negative_chipped_corner_no_hurry
 description: "Small chip, no hurry"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:

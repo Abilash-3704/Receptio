@@ -1,6 +1,7 @@
 id: cancel_identified_016
 description: Caller gives the right name and phone, hears the cancellation read back, says yes, and the Appointment is cancelled
 persona: polite_rushed
+category: identification
 caller_goal: "You want to cancel your existing appointment. Your name is Seeded Patient and your phone number is +910000000000. Agree when the cancellation is read back."
 turns:
   - "Hi, I need to cancel my appointment. Seeded Patient, +910000000000"

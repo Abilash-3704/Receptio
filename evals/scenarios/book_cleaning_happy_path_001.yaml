@@ -1,6 +1,8 @@
 id: book_cleaning_happy_path_001
 description: Caller books a cleaning for her mother (a different Patient) and says yes to the read-back
 persona: polite_rushed
+category: happy_path
+tricky_calls: [7]
 caller_goal: "You want to book a cleaning for your mother, Priya Sharma (phone +91 98765 43210), for tomorrow. Take the first time offered. Agree when the details are read back correctly."
 turns:
   - "Hi, I'd like to book a cleaning for my mother, tomorrow if possible"

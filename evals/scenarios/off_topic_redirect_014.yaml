@@ -1,6 +1,8 @@
 id: off_topic_redirect_014
 description: Tricky call 11, off-topic half. Caller chats about the weather and cricket; the agent redirects politely and briefly, twice, and gives no medical advice.
 persona: chatty_off_topic
+category: off_topic
+tricky_calls: [11]
 turns:
   - "Lovely weather today, isn't it? Did you see the cricket last night?"
   - "Ha, go on, who do you think wins the next match?"

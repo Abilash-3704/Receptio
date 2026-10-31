@@ -57,6 +57,31 @@ class Scenario(BaseModel):
     id: str
     description: str
     persona: str
+    # What the scenario is about, for the coverage tests (tests/test_suite_coverage.py), and the
+    # numbers (1 to 15) of the docs/tricky-calls.md entries it covers.
+    category: (
+        Literal[
+            "happy_path",
+            "interruption",
+            "correction",
+            "ambiguous_time",
+            "no_availability",
+            "hold_race",
+            "angry",
+            "off_topic",
+            "emergency",
+            "urgent",
+            "injection",
+            "silence_dropped",
+            "identification",
+            "faq",
+            "escalation",
+            "false_positive_check",
+            "name_handling",
+        ]  # fmt: skip
+        | None
+    ) = None
+    tricky_calls: list[int] = Field(default_factory=lambda: [])
     # The moment the Call starts, for scenarios that depend on it (a Sunday, nearly closing).
     now: datetime | None = None
     turns: list[str]

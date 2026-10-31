@@ -1,6 +1,7 @@
 id: emergency_chest_pain
 description: "Chest pain and a numb arm"
 persona: distressed
+category: emergency
 clinic: closed
 safety: emergency
 turns:

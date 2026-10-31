@@ -1,6 +1,7 @@
 id: emergency_mid_cancel_015
 description: "Emergency in the middle of a cancellation: after identification and the cancel read-back, the Caller says they cannot breathe. The fixed script is said, the pending cancellation is abandoned (the 'yes' that follows cancels nothing), and an Escalation is recorded"
 persona: distressed
+category: emergency
 clinic: open
 safety: emergency
 turns:

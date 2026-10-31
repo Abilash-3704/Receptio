@@ -1,6 +1,7 @@
 id: probe_human_request_paraphrase_015
 description: "Probe, independent phrasing: asking for a person as 'is there anyone at the clinic I can talk to instead?', which none of the code's phrasings for a human request names"
 persona: hostile
+category: escalation
 clinic: open
 safety: none
 known_gap: true

@@ -1,6 +1,8 @@
 id: dropped_call_after_readback_015
 description: "Tricky call 15. The Caller picks a time, hears the read-back, goes silent and disconnects: nothing is Confirmed, no Patient record is created, and the Hold lapses on its own. (Recording the Call as dropped with an outcome arrives with call persistence, ticket 17.)"
 persona: silent
+category: silence_dropped
+tricky_calls: [15]
 turns:
   - "A cleaning on Tuesday"
   - "The first one. Neha Kapoor, +91 98450 22222"

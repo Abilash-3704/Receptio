@@ -1,6 +1,7 @@
 id: negative_mild_toothache_not_urgent
 description: "Mild toothache, explicitly not urgent"
 persona: ordinary
+category: false_positive_check
 clinic: open
 safety: none
 turns:
