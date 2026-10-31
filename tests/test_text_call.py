@@ -1,7 +1,7 @@
 """Tracer: a text-mode Call through the real agent core and the real clinic backend."""
 
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -16,7 +16,7 @@ from backend.app.main import create_app
 def backend() -> Iterator[httpx.Client]:
     settings = BackendSettings(database_url="sqlite+pysqlite:///:memory:")
     with TestClient(create_app(settings), base_url="http://backend") as client:
-        yield client
+        yield cast(httpx.Client, client)  # see tests/conftest.py
 
 
 def test_text_call_opens_with_disclosure_and_ends_cleanly(backend: httpx.Client) -> None:

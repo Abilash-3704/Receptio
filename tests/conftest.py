@@ -1,5 +1,6 @@
 import os
 from collections.abc import Iterator
+from typing import cast
 
 import httpx
 import pytest
@@ -30,7 +31,9 @@ def backend(clock: FakeClock) -> Iterator[httpx.Client]:
         engine.dispose()
     settings = BackendSettings(database_url=POSTGRES_URL or "sqlite+pysqlite:///:memory:")
     with TestClient(create_app(settings, clock=clock), base_url="http://backend") as client:
-        yield client
+        # With the `llm` extra installed, starlette's TestClient subclasses httpx2.Client, not
+        # httpx.Client. It is call-compatible, so the agent code (typed on httpx) runs unchanged.
+        yield cast(httpx.Client, client)
 
 
 @pytest.fixture
