@@ -16,8 +16,8 @@ import httpx
 from agent.call_limits import CLOSING_SPEECH, DURATION_REASON, CallLimits
 from agent.call_state import CallState
 from agent.escalation import (
-    ASK_NUMBER,
     ASK_AGAIN_AFTER_DROPOUT,
+    ASK_NUMBER,
     ASK_NUMBER_AGAIN,
     CALLBACK_NO_NUMBER_SPEECH,
     CALLBACK_SPEECH,
@@ -399,7 +399,10 @@ class TextCall:
             self._tools.release_hold()
             try:
                 self._record_escalation(
-                    SPEECH_FAILED_REASON, self._state.patient_phone, key="speech-failed", speak=False
+                    SPEECH_FAILED_REASON,
+                    self._state.patient_phone,
+                    key="speech-failed",
+                    speak=False,
                 )
             except httpx.HTTPError:
                 logger.warning("call %s: recording the voice failure failed", self.call_id)

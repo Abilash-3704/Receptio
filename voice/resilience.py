@@ -80,6 +80,7 @@ class VoiceResilience:
         self._speak = speak
         self._close = close
         self._lost = False
+        self._tts_reported = False
 
     @property
     def voice_lost(self) -> bool:
@@ -91,7 +92,12 @@ class VoiceResilience:
             await self.speak_reliably(utterance)
 
     async def on_tts_failure(self) -> None:
-        """A reply could not be spoken: apologise (that is the one retry)."""
+        """A reply could not be spoken: apologise (that is the one retry). A second report means
+        the voice is not coming back: give up rather than apologise in a loop."""
+        if self._tts_reported:
+            await self._give_up()
+            return
+        self._tts_reported = True
         await self.speak_reliably(TTS_APOLOGY)
 
     async def speak_reliably(self, text: str) -> bool:
@@ -106,7 +112,12 @@ class VoiceResilience:
                 logger.warning("speech synthesis failed (attempt %d)", attempt)
                 continue
             return True
+        await self._give_up()
+        return False
+
+    async def _give_up(self) -> None:
+        if self._lost:
+            return
         self._lost = True
         await asyncio.to_thread(self._call.speech_failed)
         await self._close()
-        return False

@@ -73,7 +73,7 @@ OFFER_AFTER_DROPOUT = (
     "I'm sorry, I'm still having trouble hearing you. I can pass this to our staff, who will "
     "either take over or call you back. Would you like that?"
 )
-HANDOFF_SPEECH ="Of course. I'm connecting you to a member of our staff now. Please hold."
+HANDOFF_SPEECH = "Of course. I'm connecting you to a member of our staff now. Please hold."
 ASK_NUMBER = (
     "I'm sorry, our staff are not available right now, but I can have them call you back. "
     "What number should they ring?"

@@ -140,8 +140,10 @@ class RaisingMessages:
 @pytest.mark.parametrize(
     "error",
     [
-        anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.invalid")),
-        anthropic.APITimeoutError(request=httpx.Request("POST", "https://api.invalid")),
+        anthropic.APIConnectionError(
+            request=cast(Any, httpx.Request("POST", "https://api.invalid"))
+        ),
+        anthropic.APITimeoutError(request=cast(Any, httpx.Request("POST", "https://api.invalid"))),
     ],
 )
 def test_the_real_adapter_turns_provider_errors_into_llm_errors(error: Exception) -> None:

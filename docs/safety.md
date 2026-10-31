@@ -4,7 +4,7 @@ Implemented in `agent/safety.py` (detector, fixed script) and `agent/text_mode.p
 
 ## Behaviour
 
-The detector runs in code on every Caller turn, before any other state (including an Escalation already under way, or a Callback Request waiting for a number) and before the LLM is consulted.
+The detector runs in code on every Caller turn, before any other state (including an Escalation already under way, or a Callback Request waiting for a number) and before the LLM is consulted, so an LLM outage (or the clinic backend being down) does not stop the Emergency script or the Urgent triage (`tests/test_failure_llm.py`, `tests/test_failure_backend.py`).
 
 | | Emergency | Urgent Case |
 |---|---|---|

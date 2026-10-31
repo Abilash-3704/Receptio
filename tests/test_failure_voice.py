@@ -92,7 +92,9 @@ def test_two_dropouts_in_a_row_apologise_then_offer_staff_and_a_yes_reaches_them
     [stored] = escalations(backend)
     assert stored["kind"] == "handoff" and "could not hear" in stored["reason"]
     assert "staff" in " ".join(heard)
-    turns = [t["text"] for t in call_record(backend, driver)["transcript"] if t["speaker"] == "agent"]
+    turns = [
+        t["text"] for t in call_record(backend, driver)["transcript"] if t["speaker"] == "agent"
+    ]
     assert speaker.spoken[0] in turns  # what the Caller heard is in the stored Call
 
 
@@ -148,6 +150,23 @@ def test_a_synthesis_failure_that_persists_records_a_callback_request_and_ends_t
     assert speaker.attempts == 2  # not tried again
 
 
+def test_a_second_synthesis_failure_report_ends_the_call_instead_of_apologising_again(
+    backend: httpx.Client,
+) -> None:
+    # The pipeline reports a synthesis error, the apology is spoken, and the pipeline reports
+    # another one: the voice is not coming back, so the apology is not looped.
+    driver = driver_for(backend, [])
+    speaker = FakeSpeaker()
+    voice = VoiceResilience(driver, speaker.speak, speaker.close)
+
+    asyncio.run(voice.on_tts_failure())
+    asyncio.run(voice.on_tts_failure())
+
+    assert speaker.spoken == [TTS_APOLOGY]
+    assert speaker.closed == 1 and voice.voice_lost
+    assert len(escalations(backend)) == 1
+
+
 # --- mid-Call disconnect ---
 
 
@@ -189,9 +208,7 @@ def test_a_disconnect_without_a_number_is_dropped_and_has_nobody_to_ring(
 def test_a_disconnect_after_a_finished_booking_is_not_a_dropped_call(
     backend: httpx.Client,
 ) -> None:
-    driver = driver_for(
-        backend, [*TO_HOLD, UseTool("confirm_appointment", {}), Say("All booked.")]
-    )
+    driver = driver_for(backend, [*TO_HOLD, UseTool("confirm_appointment", {}), Say("All booked.")])
     collect(driver, "A cleaning tomorrow please")
     collect(driver, "That works, I'm Priya Sharma, +91 98765 43210")
     collect(driver, "Yes, that's right")

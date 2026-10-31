@@ -180,11 +180,15 @@ class ToolBox:
         except BackendError as exc:
             return ToolResult(False, {"error": exc.detail})
         except (BackendUnavailable, httpx.TransportError):
-            return ToolResult(False, {"error": "the clinic system did not answer"}, unavailable=True)
+            return ToolResult(
+                False, {"error": "the clinic system did not answer"}, unavailable=True
+            )
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code < 500:
                 raise
-            return ToolResult(False, {"error": "the clinic system did not answer"}, unavailable=True)
+            return ToolResult(
+                False, {"error": "the clinic system did not answer"}, unavailable=True
+            )
         except TypeError as exc:
             return ToolResult(False, {"error": f"bad arguments: {exc}"})
 
