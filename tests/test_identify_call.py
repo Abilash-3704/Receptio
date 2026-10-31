@@ -226,7 +226,7 @@ def test_a_reschedule_that_falls_through_keeps_the_original(
 
     assert heard == ["Sorry, that time slipped away. Your current appointment is unchanged."]
     assert [a["id"] for a in asha_appointments(backend)] == [original["id"]]
-    assert call.tool_calls[-1].refused  # the agent never reached the backend with a confirm
+    assert not call.tool_calls[-1].ok  # no Hold left to confirm, so no new Appointment
 
 
 def test_a_reschedule_cannot_be_confirmed_without_the_read_back_yes(

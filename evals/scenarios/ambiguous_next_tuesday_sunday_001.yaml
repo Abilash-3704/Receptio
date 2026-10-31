@@ -1,0 +1,32 @@
+id: ambiguous_next_tuesday_sunday_001
+description: "Tricky call 3. Caller says 'next Tuesday' on a Sunday: the exact date is confirmed aloud before Availability is checked"
+persona: polite_rushed
+now: "2026-11-01T11:00:00+05:30"
+turns:
+  - "I'd like a check-up next Tuesday"
+  - "Yes"
+  - "The first one. Priya Sharma, +91 98765 43210"
+  - "Yes, that's right"
+agent_script:
+  - tool: check_availability
+    args: {service: Check-up, when: next Tuesday}
+  - say: "Just to be sure, do you mean {date_awaiting_caller_yes}?"
+  - tool: check_availability
+    args: {service: Check-up, when: next Tuesday}
+  - say: "I can do {offered[0]} or {offered[1]}."
+  - tool: record_patient
+    args: {name: Priya Sharma, phone: "+91 98765 43210"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked."
+expected:
+  final_state:
+    appointment_confirmed: true
+    appointment_date: "2026-11-03"
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+  max_turns: 4

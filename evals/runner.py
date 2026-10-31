@@ -8,8 +8,9 @@ the trace), so a regression in the agent core cannot hide itself."""
 import ast
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import httpx
 import yaml
@@ -21,6 +22,7 @@ from agent.scripted_llm import ScriptedLLM
 from agent.text_mode import DISCLOSURE, TextCall, Turn, open_text_call
 from agent.time_guard import clock_times_in
 from agent.tools import ToolCall
+from backend.app.clock import Clock, system_clock
 from evals.state import AppointmentRow, EscalationRow, FinalState, SessionFactory, read_final_state
 
 
@@ -52,6 +54,8 @@ class Scenario(BaseModel):
     id: str
     description: str
     persona: str
+    # The moment the Call starts, for scenarios that depend on it (a Sunday, nearly closing).
+    now: datetime | None = None
     turns: list[str]
     # Forces the clinic open or closed for the Call (the demo-only override); unset follows the
     # real Clinic Hours and the clock.
@@ -87,15 +91,20 @@ class ScenarioResult:
 
 
 def run_scenario(
-    scenario: Scenario, backend: httpx.Client, session_factory: SessionFactory
+    scenario: Scenario,
+    backend: httpx.Client,
+    session_factory: SessionFactory,
+    clock: Clock = system_clock,
 ) -> ScenarioResult:
+    if scenario.now is not None:
+        cast(Any, clock).now = scenario.now  # only a settable (fake) clock can do this
     before = read_final_state(session_factory)
     llm = ScriptedLLM([s.to_step() for s in scenario.agent_script])
     if scenario.clinic is not None:
         backend.put("/demo/clinic-override", json={"mode": scenario.clinic}).raise_for_status()
     try:
         clinic_open: bool = backend.get("/clinic-status").json()["open"]
-        call: TextCall = open_text_call(backend, llm=llm)
+        call: TextCall = open_text_call(backend, llm=llm, clock=clock)
         for text in scenario.turns[: scenario.expected.max_turns]:
             call.hear(text)
         call.end()
@@ -146,6 +155,8 @@ def check_final_state(expected: dict[str, Any], obs: Observation) -> list[str]:
         and new_ids
         == {m.appointment_id for m in obs.after.messages if m.appointment_id in new_ids},
         "overlapping_appointment": has_overlap(obs.after),
+        "unreleased_holds": obs.after.held - obs.before.held,
+        "appointment_date": new[0].starts_at.date().isoformat() if new else None,
         "escalation_kind": new_escalations[0].kind if new_escalations else None,
         "escalation_reason_recorded": bool(new_escalations)
         and all(e.reason.strip() for e in new_escalations),

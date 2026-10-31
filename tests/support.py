@@ -11,7 +11,8 @@ IST = ZoneInfo("Asia/Kolkata")
 Json = dict[str, Any]
 
 # Monday 2 November 2026, 08:00 in Asia/Kolkata. The seeded existing Appointment is made
-# relative to this moment (see backend/app/seed.py).
+# relative to this moment (see backend/app/seed.py). Note the 2-hour booking notice: from this
+# moment the first bookable time is 10:00 today.
 START_OF_TEST = datetime(2026, 11, 2, 8, 0, tzinfo=IST)
 
 

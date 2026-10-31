@@ -307,6 +307,15 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
             session, idempotency_key, "POST /holds", body.model_dump(mode="json"), work
         )
 
+    @app.post("/holds/{hold_id}/release", response_model=None)
+    def release_hold(  # pyright: ignore[reportUnusedFunction]
+        hold_id: int, session: SessionDep, idempotency_key: IdempotencyKey
+    ) -> JSONResponse:
+        def work() -> tuple[int, BaseModel]:
+            return 200, hold_out(booking.release_hold(session, hold_id, clock()))
+
+        return run_idempotent(session, idempotency_key, f"POST /holds/{hold_id}/release", {}, work)
+
     @app.post("/holds/{hold_id}/read-back", response_model=None)
     def record_read_back(  # pyright: ignore[reportUnusedFunction]
         hold_id: RowId, session: SessionDep, idempotency_key: IdempotencyKey

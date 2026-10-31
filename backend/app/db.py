@@ -125,7 +125,7 @@ class AppointmentRecord(Base):
     service_id: Mapped[int] = mapped_column(ForeignKey("services.id"))
     starts_at: Mapped[datetime] = mapped_column(UtcDateTime)
     ends_at: Mapped[datetime] = mapped_column(UtcDateTime)
-    status: Mapped[str] = mapped_column(String(16))  # held, confirmed or cancelled
+    status: Mapped[str] = mapped_column(String(16))  # held, confirmed, cancelled or released
     expires_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     # Set when the Appointment is Confirmed; a Hold has no Patient.
     patient_id: Mapped[int | None] = mapped_column(ForeignKey("patients.id"), default=None)

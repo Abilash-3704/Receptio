@@ -9,8 +9,9 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
 import httpx
+import pytest
 
-from tests.support import confirm, held, new_key, place_hold, read_back
+from tests.support import FakeClock, confirm, held, new_key, place_hold, read_back
 from tests.test_confirm_cancel_reschedule import (
     booked,
     confirm_reschedule,
@@ -22,6 +23,18 @@ CONTENDERS = 8
 ROUNDS = 12
 # Dr. Rao, Monday 2 November: twelve distinct half-hour Check-up times, one per round.
 TIMES = [f"2026-11-02 {9 + n // 2:02d}:{30 * (n % 2):02d}" for n in range(ROUNDS)]
+
+
+@pytest.fixture(autouse=True)
+def early_morning(clock: FakeClock) -> None:
+    """The first time used is 09:00, which is inside the 2-hour booking window of the default
+    08:00 test clock. Start the race day earlier so every time is bookable."""
+    clock.now = clock.now.replace(hour=6)
+
+
+def patient_name(n: int) -> str:
+    """A valid name (letters only) that is distinct per round."""
+    return f"Patient {chr(ord('A') + n)}"
 
 
 def race(calls: list[Callable[[], httpx.Response]]) -> list[httpx.Response]:
@@ -116,7 +129,7 @@ def test_concurrent_confirms_for_one_patient_at_overlapping_times_confirm_one(
         second = held(backend, "Check-up", "Dr. Vikram Shetty", later(start))
         read_back(backend, first)
         read_back(backend, second)
-        name = f"Patient {start}"
+        name = patient_name(TIMES.index(start))
 
         responses = race(
             [
@@ -135,9 +148,11 @@ def test_concurrent_reschedules_of_one_appointment_confirm_exactly_one(
     backend = postgres_backend
 
     for n, start in enumerate(TIMES[:6]):
-        original = booked(backend, "Check-up", "Dr. Anita Rao", start, name=f"Patient {n}")
+        original = booked(backend, "Check-up", "Dr. Anita Rao", start, name=patient_name(n))
         holds = [
-            reschedule(backend, original["id"], "Dr. Vikram Shetty", slot).json()["id"]
+            reschedule(
+                backend, original["id"], "Dr. Vikram Shetty", slot, name=patient_name(n)
+            ).json()["id"]
             for slot in (f"2026-11-0{3 + k} {10 + n}:00" for k in range(3))
         ]
         for hold_id in holds:
