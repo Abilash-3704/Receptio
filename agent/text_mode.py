@@ -4,12 +4,14 @@
 The state machine records the read-back "yes" itself (ADR-0001); the LLM never can."""
 
 import json
+import re
 from dataclasses import dataclass
 
 import httpx
 
 from agent.call_state import CallState
 from agent.llm import LLM, LLMTurn, Message, Say
+from agent.time_guard import unoffered_times
 from agent.tools import TOOL_SPECS, ToolBox, ToolCall
 
 DISCLOSURE = (
@@ -28,8 +30,22 @@ class Turn:
     text: str
 
 
+# An explicit yes starts with an affirmative and says nothing else of substance. Anything vague
+# ("uh-huh", "I guess"), hedged ("yes, but...") or a question is NOT a yes: the Caller is asked
+# again, and the LLM cannot confirm. Wrongly refusing a yes costs one more question; wrongly
+# accepting one books the wrong Appointment.
+AFFIRMATIVES = {"yes", "yeah", "yep", "yup", "correct", "absolutely", "definitely", "exactly"}
+FILLER = {
+    "please", "thanks", "thank", "you", "that", "thats", "is", "it", "right", "correct", "all",
+    "good", "works", "perfect", "sounds", "go", "ahead", "confirm", "sure", "yes", "yeah", "great",
+}  # fmt: skip
+
+
 def is_explicit_yes(text: str) -> bool:
-    return text.strip().casefold().startswith("yes")
+    words = re.sub(r"[^a-z' ]", " ", text.casefold().replace("'", "")).split()
+    if "?" in text or not words or words[0] not in AFFIRMATIVES:
+        return False
+    return all(word in FILLER or word in AFFIRMATIVES for word in words)
 
 
 class TextCall:
@@ -63,6 +79,11 @@ class TextCall:
                 LLMTurn(self._state.summary(), list(self._messages), TOOL_SPECS)
             )
             if isinstance(step, Say):
+                if unoffered_times(step.text, self._state.ever_offered):
+                    # Withheld: the Caller never hears a time Availability did not return.
+                    error = {"error": "you named a time that Availability did not return"}
+                    self._messages.append(Message("tool", json.dumps(error)))
+                    continue
                 self._speak(step.text, spoken)
                 return spoken
             result = self._tools.run(step.name, step.args)

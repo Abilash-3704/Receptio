@@ -44,14 +44,12 @@ class CallState:
     patient_name: str | None = None
     patient_phone: str | None = None
     offers: list[Offer] = field(default_factory=lambda: [])
+    # Every start time Availability has returned and the agent offered during this Call.
+    ever_offered: set[datetime] = field(default_factory=lambda: set())
     hold: HoldInfo | None = None
     awaiting_read_back_answer: bool = False
     read_back_agreed: bool = False
     appointment_id: int | None = None
-
-    @property
-    def offered_times(self) -> set[datetime]:
-        return {o.start for o in self.offers}
 
     def summary(self) -> dict[str, Any]:
         """The compact per-turn view the LLM gets."""

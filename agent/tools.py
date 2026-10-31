@@ -74,6 +74,24 @@ class ToolCall:
     refused: bool
 
 
+class BackendError(Exception):
+    """The clinic backend refused or failed a request. `detail` is its explanation."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+def checked(response: httpx.Response) -> httpx.Response:
+    if response.is_error:
+        try:
+            detail = str(response.json().get("detail", response.text))
+        except ValueError:
+            detail = response.text
+        raise BackendError(detail)
+    return response
+
+
 class ToolBox:
     def __init__(self, backend: httpx.Client, call_id: int, state: CallState) -> None:
         self._backend = backend
@@ -87,9 +105,8 @@ class ToolBox:
             return ToolResult(False, {"error": f"unknown tool {name}"})
         try:
             return handler(**args)
-        except httpx.HTTPStatusError as exc:
-            detail = exc.response.json().get("detail", exc.response.text)
-            return ToolResult(False, {"error": str(detail)})
+        except BackendError as exc:
+            return ToolResult(False, {"error": exc.detail})
         except TypeError as exc:
             return ToolResult(False, {"error": f"bad arguments: {exc}"})
 
@@ -101,8 +118,7 @@ class ToolBox:
 
     def _post(self, path: str, key: str, json: dict[str, Any] | None = None) -> dict[str, Any]:
         response = self._backend.post(path, headers={"Idempotency-Key": key}, json=json)
-        response.raise_for_status()
-        return response.json()
+        return checked(response).json()
 
     def _tool_check_availability(self, service: str, date: str) -> ToolResult:
         services: list[dict[str, Any]] = self._backend.get("/services").json()
@@ -120,8 +136,7 @@ class ToolBox:
                 "end": f"{date}T23:59:00+05:30",
             },
         )
-        response.raise_for_status()
-        slots: list[dict[str, Any]] = response.json()
+        slots: list[dict[str, Any]] = checked(response).json()
         seen: set[datetime] = set()
         offers: list[Offer] = []
         for slot in sorted(slots, key=lambda s: (s["start"], s["provider_id"])):
@@ -135,6 +150,7 @@ class ToolBox:
         self._state.service_id = match["id"]
         self._state.service = match["name"]
         self._state.offers = offers[::step][:MAX_OFFERS]
+        self._state.ever_offered |= {o.start for o in self._state.offers}
         return ToolResult(True, {"offered": [o.label for o in self._state.offers]})
 
     def _tool_record_patient(self, name: str, phone: str) -> ToolResult:
@@ -177,6 +193,14 @@ class ToolBox:
         state = self._state
         if state.hold is None or state.patient_name is None or state.patient_phone is None:
             return ToolResult(False, {"error": "there is no Hold to confirm"})
+        if not state.read_back_agreed:
+            # ADR-0001: only the state machine records the "yes". Without it the backend is
+            # not even asked.
+            return ToolResult(
+                False,
+                {"error": "the Caller has not agreed to the read-back; read it back and wait"},
+                refused=True,
+            )
         appointment = self._post(
             f"/holds/{state.hold.id}/confirm",
             self._key("confirm"),
