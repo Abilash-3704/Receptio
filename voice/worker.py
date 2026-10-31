@@ -15,8 +15,9 @@ import asyncio
 import logging
 import sys
 import time
-from collections.abc import AsyncGenerator, AsyncIterable
+from collections.abc import AsyncGenerator, AsyncIterable, Coroutine
 from pathlib import Path
+from typing import Any
 
 from livekit import rtc
 from livekit.agents import (
@@ -31,6 +32,7 @@ from livekit.agents import (
 )
 from livekit.agents.voice.events import (
     AgentStateChangedEvent,
+    ErrorEvent,
     UserInputTranscribedEvent,
     UserStateChangedEvent,
 )
@@ -47,6 +49,7 @@ from voice.admission import settle_admission
 from voice.config import VoiceSettings
 from voice.driver import VoiceTurnDriver, watch_call_limits
 from voice.persist import storing
+from voice.resilience import AsrDropoutWatch, VoiceResilience
 from voice.timing import TurnTimings
 
 logger = logging.getLogger("receptio.voice")
@@ -144,6 +147,7 @@ async def entrypoint(ctx: JobContext) -> None:
         call.call_id, emit=storing(backend, call.call_id, write_line(voice.turn_log_path))
     )
     driver = VoiceTurnDriver(call, timings)
+    asr_watch = AsrDropoutWatch()  # ticket 19: a Caller who spoke and got no text back
 
     session = AgentSession(
         vad=ctx.proc.userdata["vad"],
@@ -167,14 +171,17 @@ async def entrypoint(ctx: JobContext) -> None:
         logger.info("user %s -> %s", ev.old_state, ev.new_state)
         if ev.new_state == "speaking":
             timings.on_user_speech_start(time.monotonic())
+            asr_watch.on_speech_start(time.monotonic())
         elif ev.old_state == "speaking":
             timings.on_speech_end(time.monotonic())
+            asr_watch.on_speech_end(time.monotonic())
 
     @session.on("user_input_transcribed")
     def _asr(ev: UserInputTranscribedEvent) -> None:  # pyright: ignore[reportUnusedFunction]
         logger.info("asr final=%s chars=%d", ev.is_final, len(ev.transcript))
         if ev.is_final:
             timings.on_asr_final(time.monotonic())
+            asr_watch.on_text()
 
     @session.on("agent_state_changed")
     def _agent_state(ev: AgentStateChangedEvent) -> None:  # pyright: ignore[reportUnusedFunction]
@@ -210,6 +217,39 @@ async def entrypoint(ctx: JobContext) -> None:
     # (A Caller who is talking hears them appended to the agent's reply instead.)
     limits_task = asyncio.create_task(watch_call_limits(driver, speak, close, stop=call_over))
     ctx.add_shutdown_callback(_cancel(limits_task))
+
+    # Provider failures (ticket 19). UNVERIFIED against real LiveKit and providers: see
+    # docs/failure-analysis.md. Only errors LiveKit has given up on (not recoverable) are handled;
+    # its own retries come first.
+    resilience = VoiceResilience(driver, speak, close)
+    background: set[asyncio.Task[None]] = set()
+
+    def spawn(coro: "Coroutine[Any, Any, None]") -> None:
+        task = asyncio.create_task(coro)
+        background.add(task)
+        task.add_done_callback(background.discard)
+
+    @session.on("error")
+    def _error(ev: ErrorEvent) -> None:  # pyright: ignore[reportUnusedFunction]
+        kind = getattr(ev.error, "type", None)
+        logger.warning(
+            "session error %s recoverable=%s", kind, getattr(ev.error, "recoverable", None)
+        )
+        if getattr(ev.error, "recoverable", True):
+            return
+        if kind == "tts_error":
+            spawn(resilience.on_tts_failure())
+        elif kind == "stt_error":
+            spawn(resilience.on_asr_dropout())
+
+    async def watch_asr() -> None:
+        while not call_over.is_set():
+            if asr_watch.due(time.monotonic()):
+                await resilience.on_asr_dropout()
+            await asyncio.sleep(0.5)
+
+    asr_task = asyncio.create_task(watch_asr())
+    ctx.add_shutdown_callback(_cancel(asr_task))
 
 
 if __name__ == "__main__":

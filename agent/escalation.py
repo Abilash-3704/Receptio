@@ -22,21 +22,57 @@ def failed_twice_reason(step: str) -> str:
     return f"{step} failed twice in a row"
 
 
+LLM_DOWN_REASON = "the assistant's language model was unavailable"
+DROPPED_PREFIX = "call dropped before finishing"
+DROPPED_REASON = DROPPED_PREFIX + ": {step}"
+SPEECH_FAILED_REASON = "the assistant's voice failed"
+SPEECH_UNHEARD_REASON = "the assistant could not hear the Caller"
+
+
+def unavailable_reason(step: str) -> str:
+    return f"{step}: the clinic system did not answer"
+
+
 def forced_kind(reason: str) -> str | None:
     """The cases that always mean a Callback Request, even during Clinic Hours: a request sooner
     than the booking window allows, failed identification, the Call reaching its time limit, and
     an objection to recording (the Call cannot go on). Everything else (a human asked for,
     Emergency, Urgent Case, other failures) leaves the kind to the backend."""
-    if reason in (
-        TOO_SOON_REASON,
-        failed_twice_reason(IDENTIFICATION_STEP),
-        DURATION_REASON,
-        RECORDING_OBJECTION_REASON,
+    if (
+        reason
+        in (
+            TOO_SOON_REASON,
+            failed_twice_reason(IDENTIFICATION_STEP),
+            DURATION_REASON,
+            RECORDING_OBJECTION_REASON,
+            SPEECH_FAILED_REASON,  # the Caller cannot hear a Handoff either
+        )
+        or reason.startswith(DROPPED_PREFIX)  # the Caller has hung up
     ):
         return "callback_request"
     return None
 
 
+SORRY_FOR_THE_WAIT = "Sorry for the wait."
+# The offer after a failure and its one retry. The Caller answers yes to pass the Call to staff.
+OFFER_AFTER_FAILURE = (
+    "I'm sorry, I'm having trouble with that right now. I can pass this to our staff, who will "
+    "either take over or call you back. Would you like that?"
+)
+# For a booking or cancellation whose outcome is unknown: nothing is claimed as done.
+OFFER_OUTCOME_UNKNOWN = (
+    "I'm sorry, I couldn't tell whether that went through, so I can't say it is done. I can ask "
+    "our staff to check and call you back. Would you like that?"
+)
+ESCALATION_UNAVAILABLE = (
+    "I'm sorry, I can't reach our staff system either. Please call the clinic directly, and "
+    "thank you for your patience."
+)
+ASK_AGAIN_AFTER_DROPOUT = "I'm sorry, I didn't catch that. Could you say it again?"
+OFFER_AFTER_DROPOUT = (
+    "I'm sorry, I'm still having trouble hearing you. I can pass this to our staff, who will "
+    "either take over or call you back. Would you like that?"
+)
 HANDOFF_SPEECH = "Of course. I'm connecting you to a member of our staff now. Please hold."
 ASK_NUMBER = (
     "I'm sorry, our staff are not available right now, but I can have them call you back. "

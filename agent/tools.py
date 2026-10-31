@@ -120,6 +120,9 @@ class ToolResult:
     speak: str | None = None
     # True when the state machine refused to let the tool run (nothing reached the backend).
     refused: bool = False
+    # True when the backend did not answer (timeout, unreachable, 5xx): the outcome is unknown,
+    # which is not the same as the backend saying no.
+    unavailable: bool = False
 
 
 @dataclass(frozen=True)
@@ -142,6 +145,11 @@ class BackendError(Exception):
         self.status = status
 
 
+class BackendUnavailable(Exception):
+    """The clinic backend did not answer: it timed out, was unreachable or answered 5xx. Whether
+    it did the work is unknown. (Contrast `BackendError`: the backend answered, and said no.)"""
+
+
 def checked(response: httpx.Response) -> httpx.Response:
     if response.is_error:
         try:
@@ -161,6 +169,8 @@ class ToolBox:
         self._call_id = call_id
         self._state = state
         self._counters: dict[str, int] = {}
+        # Writes the backend never answered: operation -> (Idempotency-Key, path, body).
+        self._unanswered: dict[str, tuple[str, str, dict[str, Any] | None]] = {}
 
     def run(self, name: str, args: dict[str, Any]) -> ToolResult:
         handler = getattr(self, f"_tool_{name}", None)
@@ -170,6 +180,16 @@ class ToolBox:
             return handler(**args)
         except BackendError as exc:
             return ToolResult(False, {"error": exc.detail})
+        except (BackendUnavailable, httpx.TransportError):
+            return ToolResult(
+                False, {"error": "the clinic system did not answer"}, unavailable=True
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code < 500:
+                raise
+            return ToolResult(
+                False, {"error": "the clinic system did not answer"}, unavailable=True
+            )
         except TypeError as exc:
             return ToolResult(False, {"error": f"bad arguments: {exc}"})
 
@@ -179,8 +199,37 @@ class ToolBox:
         self._counters[operation] = attempt
         return f"call{self._call_id}-{operation}-{attempt}"
 
-    def _post(self, path: str, key: str, json: dict[str, Any] | None = None) -> dict[str, Any]:
-        response = self._backend.post(path, headers={"Idempotency-Key": key}, json=json)
+    def _post(
+        self, path: str, operation: str, json: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """A write. If the backend did not answer (timeout, 5xx), it may or may not have done the
+        work, so the next identical write of this operation reuses the same Idempotency-Key: the
+        backend then replays the stored result, or does the work once. Never a second Appointment.
+        A write with a different body gets a new key (the backend rejects a key used for another
+        request)."""
+        pending = self._unanswered.get(operation)
+        if pending is not None and pending[1:] == (path, json):
+            key = pending[0]
+        else:
+            key = self._key(operation)
+        try:
+            response = self._backend.post(path, headers={"Idempotency-Key": key}, json=json)
+        except httpx.TransportError as exc:
+            self._unanswered[operation] = (key, path, json)
+            raise BackendUnavailable(str(exc)) from exc
+        if response.status_code >= 500:
+            self._unanswered[operation] = (key, path, json)
+            raise BackendUnavailable(f"backend answered {response.status_code}")
+        self._unanswered.pop(operation, None)
+        return checked(response).json()
+
+    def _get(self, path: str, **kwargs: Any) -> Any:
+        try:
+            response = self._backend.get(path, **kwargs)
+        except httpx.TransportError as exc:
+            raise BackendUnavailable(str(exc)) from exc
+        if response.status_code >= 500:
+            raise BackendUnavailable(f"backend answered {response.status_code}")
         return checked(response).json()
 
     def _hold_details(self) -> dict[str, str] | None:
@@ -202,9 +251,9 @@ class ToolBox:
         state = self._state
         if state.hold is not None:
             try:
-                self._post(f"/holds/{state.hold.id}/release", self._key("release"))
-            except BackendError:
-                pass  # already expired or gone: the time is free either way
+                self._post(f"/holds/{state.hold.id}/release", "release")
+            except (BackendError, BackendUnavailable):
+                pass  # gone already, or it lapses on its own: the time is free either way
             state.hold = None
         state.awaiting_read_back_answer = False
         state.read_back_agreed = False
@@ -219,12 +268,12 @@ class ToolBox:
         state = self._state
         if state.rescheduling and state.target is not None:
             service = state.target.service  # a reschedule moves the same Service
-        services: list[dict[str, Any]] = self._backend.get("/services").json()
+        services: list[dict[str, Any]] = self._get("/services")
         match = next((s for s in services if s["name"].casefold() == service.casefold()), None)
         if match is None:
             names = [s["name"] for s in services]
             return ToolResult(False, {"error": f"unknown service; choose from {names}"})
-        providers: list[dict[str, Any]] = self._backend.get("/providers").json()
+        providers: list[dict[str, Any]] = self._get("/providers")
         names_by_id = {p["id"]: p["name"] for p in providers}
         wanted: int | None = None
         if provider:
@@ -271,9 +320,7 @@ class ToolBox:
         return ToolResult(True, {**search.facts, "offered": [o.label for o in search.offers]})
 
     def _tool_search_faq(self, question: str) -> ToolResult:
-        entries: list[dict[str, str]] = checked(
-            self._backend.get("/faq", params={"q": question})
-        ).json()
+        entries: list[dict[str, str]] = self._get("/faq", params={"q": question})
         if not entries:
             # Code says it, so the LLM cannot make something up in its place.
             self._state.callback_offer = NO_ANSWER_REASON.format(question=question[:200])
@@ -296,6 +343,8 @@ class ToolBox:
         response = self._backend.post(
             "/appointments/lookup", json={"patient_name": name, "patient_phone": phone}
         )
+        if response.status_code >= 500:  # no answer is not a mismatch: the Caller is not told so
+            raise BackendUnavailable(f"backend answered {response.status_code}")
         if response.is_error:  # the backend says nothing more than "failed": neither do we
             return ToolResult(False, {"error": "identification failed"})
         state.identity = (name.strip(), phone.strip())
@@ -343,7 +392,7 @@ class ToolBox:
         name, phone = state.identity
         self._post(
             f"/appointments/{state.target.id}/cancel",
-            self._key("cancel"),
+            "cancel",
             {"patient_name": name, "patient_phone": phone},
         )
         state.appointment_cancelled = True
@@ -375,11 +424,11 @@ class ToolBox:
             name, phone = self._state.identity
             body = self._post(
                 f"/appointments/{self._state.target.id}/reschedule",
-                self._key("reschedule-hold"),
+                "reschedule-hold",
                 {**hold, "patient_name": name, "patient_phone": phone},
             )
         else:
-            body = self._post("/holds", self._key("hold"), hold)
+            body = self._post("/holds", "hold", hold)
         self._state.hold = HoldInfo(body["id"], offer)
         self._state.hold_lost = None
         return ToolResult(True, {"hold": offer.label})
@@ -422,9 +471,7 @@ class ToolBox:
         if details is None:
             return ToolResult(False, {"error": "the Patient's name and phone are missing"})
         try:
-            appointment = self._post(
-                f"/holds/{state.hold.id}/confirm", self._key("confirm"), details
-            )
+            appointment = self._post(f"/holds/{state.hold.id}/confirm", "confirm", details)
         except BackendError as exc:
             if exc.status == 409:  # the Hold expired or the time was taken: nothing is confirmed
                 self._lose_hold(exc.detail)
@@ -433,7 +480,13 @@ class ToolBox:
                 )
             raise
         state.appointment_id = appointment["id"]
-        self._post(f"/appointments/{appointment['id']}/confirmation-message", self._key("message"))
+        try:
+            self._post(f"/appointments/{appointment['id']}/confirmation-message", "message")
+        except (BackendError, BackendUnavailable):
+            # The Appointment is Confirmed; only the message is missing. Say the true thing.
+            return ToolResult(
+                True, {"confirmed": state.hold.offer.label, "confirmation_message": "not sent"}
+            )
         return ToolResult(True, {"confirmed": state.hold.offer.label})
 
     def release_hold(self) -> None:
@@ -442,8 +495,8 @@ class ToolBox:
         hold = self._state.hold
         if hold is not None:
             try:
-                self._post(f"/holds/{hold.id}/release", self._key("release"))
-            except (BackendError, httpx.HTTPError):
+                self._post(f"/holds/{hold.id}/release", "release")
+            except (BackendError, BackendUnavailable):
                 pass
         self._state.abandon_scheduling()
 
@@ -455,7 +508,7 @@ class ToolBox:
         try:
             # Only a reschedule Hold's read-back carries the identified Patient's details.
             details = self._hold_details() if state.rescheduling else None
-            self._post(f"/holds/{state.hold.id}/read-back", self._key("read-back"), details)
+            self._post(f"/holds/{state.hold.id}/read-back", "read-back", details)
         except BackendError as exc:
             if exc.status != 409:
                 raise
