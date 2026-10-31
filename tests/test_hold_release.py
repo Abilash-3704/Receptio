@@ -78,10 +78,10 @@ def test_a_reschedule_hold_is_only_released_for_its_patient(backend: httpx.Clien
     assert release(backend, hold_id, name="Asha Menon", phone="+91 90000 00000").status_code == 403
     assert release(backend, hold_id, name="Ravi Kumar", phone="+91 98450 12345").status_code == 403
     # Still live: the refused releases changed nothing, and the Patient can go on.
-    assert read_back(backend, hold_id, name="Asha Menon", phone="+91 98450 12345").status_code == 200
     assert (
-        release(backend, hold_id, name="Asha Menon", phone="+91 98450 12345").status_code == 200
+        read_back(backend, hold_id, name="Asha Menon", phone="+91 98450 12345").status_code == 200
     )
+    assert release(backend, hold_id, name="Asha Menon", phone="+91 98450 12345").status_code == 200
 
 
 def test_releasing_a_reschedule_hold_frees_its_time(backend: httpx.Client) -> None:

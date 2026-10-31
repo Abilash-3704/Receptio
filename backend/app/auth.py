@@ -21,11 +21,14 @@ password, so an unconfigured backend lets nobody in). Secrets are compared in co
 import base64
 import binascii
 import hmac
+import logging
 import math
 
 from fastapi import HTTPException, Request
 
 from backend.app.ratelimit import client_ip
+
+logger = logging.getLogger("receptio.backend")
 
 # Routes that answer without credentials. Keep this list short and justified.
 PUBLIC_ROUTES = {
@@ -81,6 +84,24 @@ def _basic(header: str | None) -> tuple[str, str] | None:
     return user, password
 
 
+def _warn_if_behind_an_unconfigured_proxy(request: Request, trusted_proxy_hops: int) -> None:
+    """A forwarded-for header with TRUSTED_PROXY_HOPS=0 means a proxy sits in front and every
+    client shares the proxy's address, hence one failed-login budget: one client's failures can
+    lock the others out. The throttle is left strict (a client-supplied header must never choose
+    the address); the operator is told, once, to set the number of proxies."""
+    state = request.app.state
+    if trusted_proxy_hops > 0 or getattr(state, "proxy_warned", False):
+        return
+    if request.headers.get("x-forwarded-for"):
+        state.proxy_warned = True
+        logger.warning(
+            "X-Forwarded-For seen while TRUSTED_PROXY_HOPS=0: all clients behind that proxy share "
+            "one failed-authentication limit, so one client's failures can lock the others out. "
+            "Set TRUSTED_PROXY_HOPS to the number of reverse proxies you run in front of this "
+            "backend."
+        )
+
+
 def authenticate(request: Request) -> None:
     """The app-wide dependency: let the request through or raise 401, 403 or 503."""
     route = request.scope.get("route")
@@ -127,5 +148,6 @@ def authenticate(request: Request) -> None:
     if is_service or is_staff:
         raise HTTPException(status_code=403, detail="these credentials may not use this route")
     failures.record(address)
+    _warn_if_behind_an_unconfigured_proxy(request, settings.trusted_proxy_hops)
     challenge = {} if needs_service else {"WWW-Authenticate": 'Basic realm="Receptio staff"'}
     raise HTTPException(status_code=401, detail="authentication required", headers=challenge)

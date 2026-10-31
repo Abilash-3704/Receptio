@@ -89,9 +89,9 @@ def admit(
     day = _day(now)
     reserve = settings.call_max_seconds
     if settings.caps_test_mode:
-        session.add(CallAdmission(
-                room=room, day=day, reserved_seconds=0, settled=False, admitted_at=now
-            ))
+        session.add(
+            CallAdmission(room=room, day=day, reserved_seconds=0, settled=False, admitted_at=now)
+        )
         session.commit()
         return None
     steps = [
@@ -103,9 +103,9 @@ def admit(
         if not _take(session, scope, key, day, amount, limit):
             session.rollback()
             return Refused(reason, REFUSALS[reason].format(n=settings.visitor_calls_per_day))
-    session.add(CallAdmission(
-            room=room, day=day, reserved_seconds=reserve, settled=False, admitted_at=now
-        ))
+    session.add(
+        CallAdmission(room=room, day=day, reserved_seconds=reserve, settled=False, admitted_at=now)
+    )
     session.commit()
     return None
 

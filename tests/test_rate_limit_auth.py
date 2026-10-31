@@ -2,10 +2,12 @@
 address. Successes are free; a locked-out address is answered 429 before its credentials are even
 compared, so it cannot keep guessing."""
 
+import logging
 from datetime import timedelta
 from typing import cast
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import BackendFactory
@@ -114,3 +116,32 @@ def test_the_public_health_check_still_answers_while_an_address_is_locked_out(
         guess(client)
 
     assert client.get("/health").status_code == 200
+
+
+def test_a_failure_behind_an_unconfigured_proxy_is_logged_once_with_the_fix(
+    backend_factory: BackendFactory, caplog: pytest.LogCaptureFixture
+) -> None:
+    """With TRUSTED_PROXY_HOPS=0 every client behind a proxy shares one address, so one client's
+    failures lock out the rest. The throttle stays strict; the operator is told how to fix it."""
+    client = anonymous(backend_factory(auth_failures_per_ip=LIMIT))
+    caplog.set_level(logging.WARNING, logger="receptio.backend")
+
+    for _ in range(3):
+        client.get(
+            "/escalations",
+            headers={**basic("wrong-password-0123456789"), "X-Forwarded-For": "9.9.9.9"},
+        )
+
+    warnings = [r.getMessage() for r in caplog.records if "TRUSTED_PROXY_HOPS" in r.getMessage()]
+    assert len(warnings) == 1
+
+
+def test_no_proxy_warning_without_a_forwarded_header(
+    backend_factory: BackendFactory, caplog: pytest.LogCaptureFixture
+) -> None:
+    client = anonymous(backend_factory(auth_failures_per_ip=LIMIT))
+    caplog.set_level(logging.WARNING, logger="receptio.backend")
+
+    guess(client)
+
+    assert not [r for r in caplog.records if "TRUSTED_PROXY_HOPS" in r.getMessage()]
