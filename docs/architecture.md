@@ -76,6 +76,8 @@ LiveKit plugins must share one version with `livekit-agents`. `deepgram-sdk` (7.
 
 Values come from the spec: maximum Call duration 5 minutes (warning at 4 minutes 30 seconds), 3 Calls per visitor per day, 120 minutes per day globally. All are configuration. Provider spend caps are a second, independent line of defence and are tracked in the README checklist.
 
+The global cap reserves a full Call's minutes at admission and the worker settles the unused part when the Call ends. Settlement needs the service token and is clamped by the backend's own record of when the room was admitted, so the refund never rests on a number the caller chose.
+
 ## Open items
 
 - LiveKit server: self-hosted in Compose versus Cloud. Decide in the skeleton ticket.
