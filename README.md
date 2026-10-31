@@ -84,7 +84,7 @@ Cost per Call = (input tokens x input price + output tokens x output price) per 
 
 The baseline file is `{"schema_version": 1, "mode": ..., "scenarios": core_count, "metrics": {name: value}}` holding the gated metrics (higher or lower is better) and the number of core scenarios, which may grow but not shrink; `evals.baseline.compare_to_baseline(report, baseline, tolerance)` returns the regressions, empty meaning pass. Simulated runs are noisy, so `--check-baseline` allows a 0.05 tolerance there.
 
-Friction: the `llm` extra pulls in `httpx2`, which makes Starlette's `TestClient` subclass `httpx2.Client` instead of `httpx.Client`. Tests cast it back (see `tests/conftest.py`); the agent's backend code does not depend on httpx exception classes for that reason.
+Friction: Starlette's `TestClient` subclasses `httpx2.Client` instead of `httpx.Client` in this dependency set. Tests cast it back (see `tests/conftest.py`); the agent's backend code does not depend on httpx exception classes for that reason.
 
 ## Provider spend caps checklist
 

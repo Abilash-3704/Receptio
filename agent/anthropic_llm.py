@@ -1,6 +1,5 @@
 """The real LLM: Claude through the `anthropic` SDK, behind the same `LLM` interface the scripted
-one implements. Needs the `llm` extra (it conflicts with the `voice` extra, see pyproject.toml),
-a key in ANTHROPIC_API_KEY, and model names from LLM_MODEL / LLM_MODEL_FAST.
+one implements. Needs a key in ANTHROPIC_API_KEY, and model names from LLM_MODEL / LLM_MODEL_FAST.
 
 Not exercised in CI. Only the agent's wiring (agent/main.py, later the voice pipeline) imports
 this module; the agent core and the tests do not."""
