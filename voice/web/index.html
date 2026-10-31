@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receptio: call the clinic</title>
+<style>
+  :root { --bg: #f6f7f9; --fg: #1b1f24; --muted: #5b6570; --accent: #0b6b57; --stop: #a3261c; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171a; --fg: #e8ebee; --muted: #9aa5b1; --accent: #3fb59b; --stop: #ef7b70; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 32rem; margin: 0 auto; padding: 2rem 16px; }
+  button { font: inherit; padding: .7rem 1.4rem; border: 0; border-radius: .5rem; color: #fff;
+           background: var(--accent); cursor: pointer; }
+  button.stop { background: var(--stop); }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { color: var(--muted); margin: 1rem 0; }
+  #log { list-style: none; padding: 0; }
+  #log li { margin: .4rem 0; }
+  .agent { color: var(--accent); }
+  small { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Call the clinic</h1>
+  <p>This is a demo of an AI receptionist for a fictional dental clinic. The agent will say
+     it is an AI and that the call may be recorded. Allow microphone access when asked.</p>
+  <button id="toggle">Start call</button>
+  <div id="status" role="status">Not connected.</div>
+  <ul id="log" aria-live="polite"></ul>
+  <small>Speak naturally; you can interrupt the agent at any time.</small>
+</main>
+<!-- Pinned: livekit-client 2.23.0 (jsDelivr). -->
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.23.0/dist/livekit-client.umd.js"></script>
+<script>
+(() => {
+  const { Room, RoomEvent, Track } = LivekitClient;
+  const button = document.getElementById("toggle");
+  const status = document.getElementById("status");
+  const log = document.getElementById("log");
+  let room = null;
+  let audioEls = [];
+
+  const setStatus = (text) => { status.textContent = text; };
+
+  async function start() {
+    button.disabled = true;
+    setStatus("Connecting...");
+    try {
+      const res = await fetch("/token", { method: "POST" });
+      if (!res.ok) throw new Error("token endpoint returned " + res.status);
+      const { url, token } = await res.json();
+      room = new Room({ audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true } });
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === Track.Kind.Audio) {
+          const el = track.attach();  // plays the agent's voice
+          document.body.appendChild(el);
+          audioEls.push(el);
+        }
+      });
+      room.on(RoomEvent.TranscriptionReceived, (segments, participant) => {
+        for (const s of segments) {
+          if (!s.final) continue;
+          const li = document.createElement("li");
+          const agent = participant && !participant.isLocal;
+          li.className = agent ? "agent" : "";
+          li.textContent = (agent ? "Agent: " : "You: ") + s.text;
+          log.appendChild(li);
+        }
+      });
+      room.on(RoomEvent.Disconnected, cleanup);
+      await room.connect(url, token);
+      await room.localParticipant.setMicrophoneEnabled(true);
+      await room.startAudio();
+      button.textContent = "End call";
+      button.className = "stop";
+      button.disabled = false;
+      setStatus("Connected. The agent will greet you.");
+    } catch (err) {
+      setStatus("Could not start the call: " + err.message);
+      cleanup();
+    }
+  }
+
+  function cleanup() {
+    audioEls.forEach((el) => el.remove());
+    audioEls = [];
+    room = null;
+    button.textContent = "Start call";
+    button.className = "";
+    button.disabled = false;
+  }
+
+  async function end() {
+    button.disabled = true;
+    if (room) await room.disconnect();
+    cleanup();
+    setStatus("Call ended.");
+  }
+
+  button.addEventListener("click", () => (room ? end() : start()));
+})();
+</script>
+</body>
+</html>

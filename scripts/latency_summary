@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""Report p50 / p95 latency over voice-loop turn-timing logs.
+
+    scripts/latency_summary logs/voice-turns.jsonl [more.jsonl ...] [--min-turns 20]
+
+Reads JSON lines (voice.timing); other lines are skipped. Exits 1 when fewer than --min-turns
+completed turns were found, so a too-small sample cannot pass as a result."""
+
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from voice.summary import render, summarise  # noqa: E402
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("logs", nargs="+", type=Path)
+    parser.add_argument("--min-turns", type=int, default=0)
+    args = parser.parse_args()
+    lines: list[str] = []
+    for path in args.logs:
+        lines.extend(path.read_text().splitlines())
+    summary = summarise(lines)
+    sys.stdout.write(render(summary))
+    return 0 if summary.completed >= args.min_turns else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

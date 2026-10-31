@@ -36,6 +36,83 @@ services:
     depends_on:
       - backend
 
+  # Self-hosted LiveKit server, dev mode (documented dev keys devkey/secret; local use only).
+  # WebRTC media: 7881/tcp and 7882/udp are published; node_ip in deploy/livekit.yaml makes the
+  # server advertise 127.0.0.1, which works for a browser on the same machine.
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    command: ["--dev", "--bind", "0.0.0.0", "--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./deploy/livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "${LIVEKIT_PORT:-7880}:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+
+  # Voice agent worker: joins each new room and runs the Call on the shared agent core.
+  voice-agent:
+    build: .
+    command: ["python", "-m", "voice.worker", "start"]
+    environment:
+      BACKEND_URL: http://backend:8000
+      BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      CARTESIA_API_KEY: ${CARTESIA_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-sonnet-5-5}
+      TURN_LOG_PATH: /app/logs/voice-turns.jsonl
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - backend
+      - livekit
+
+  # Web client: static page plus the token endpoint. Open http://localhost:8002.
+  web:
+    build: .
+    command: ["uvicorn", "voice.web:create_app", "--factory", "--host", "0.0.0.0", "--port", "8002"]
+    environment:
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_PUBLIC_URL: ws://localhost:${LIVEKIT_PORT:-7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+    ports:
+      - "${WEB_PORT:-8002}:8002"
+
+volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-receptio}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    build: .
+    command: ["uvicorn", "backend.app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-receptio}:${POSTGRES_PASSWORD:-receptio}@db:5432/${POSTGRES_DB:-receptio}
+      DATABASE_CONNECT_TIMEOUT_SECONDS: ${DATABASE_CONNECT_TIMEOUT_SECONDS:-5}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  agent:
+    build: .
+    command: ["python", "-m", "agent.main"]
+    environment:
+      BACKEND_URL: http://backend:8000
+      BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
+    ports:
+      - "${AGENT_PORT:-8001}:8001"
+    depends_on:
+      - backend
+
   # TODO (ticket 12): self-hosted LiveKit server (livekit/livekit-server) for the voice
   # pipeline. Not needed for text-mode Calls, so it is deliberately absent from the tracer.
 
