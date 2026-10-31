@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] One command runs the suite and outputs a metrics table
-- [ ] Personas are configurable and change simulated Caller behaviour
-- [ ] Scenarios assert database state and `must_not` rules
-- [ ] The report includes every metric listed above
-- [ ] Scripted turns remain available wherever a result must be exactly reproducible
+- [x] One command runs the suite and outputs a metrics table (`uv run python -m evals`, Markdown and JSON in `evals/reports/`)
+- [x] Personas are configurable and change simulated Caller behaviour (verified with a fake client: persona style reaches the model prompt and a persona's turn limit is enforced in code; how a real model behaves under each persona is NOT yet observed, no API key was available)
+- [x] Scenarios assert database state and `must_not` rules
+- [ ] The report includes every metric listed above (all but latency are measured; latency is a clearly marked `not measured` field until the voice pipeline, tickets 12 and 16; cost is computed but only exercised with a fake client, prices are placeholders)
+- [x] Scripted turns remain available wherever a result must be exactly reproducible

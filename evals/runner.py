@@ -18,13 +18,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agent.call_state import format_time
 from agent.faq import unknown_amounts
-from agent.llm import Say, Step, UseTool
+from agent.llm import LLM, Say, Step, UseTool
 from agent.safety import EMERGENCY_SCRIPT, URGENT_REASON
 from agent.scripted_llm import ScriptedLLM
 from agent.text_mode import DISCLOSURE, TextCall, Turn, open_text_call
 from agent.time_guard import clock_times_in
 from agent.tools import ToolCall
 from backend.app.clock import Clock, system_clock
+from evals.simulated_caller import SimulatedCaller
 from evals.state import AppointmentRow, EscalationRow, FinalState, SessionFactory, read_final_state
 
 
@@ -68,7 +69,15 @@ class Scenario(BaseModel):
     safety: Literal["emergency", "urgent", "none"] = "none"
     known_gap: bool = False
     agent_script: list[ScriptStep] = Field(default_factory=lambda: [])
+    # For the simulated Caller (evals/simulated_caller.py): what this Caller wants and the facts
+    # they know (name, number, symptoms), in the second person. Without it the description is
+    # used. Never the scripted `turns`: the point is phrasings the rules' author did not write.
+    caller_goal: str | None = None
     expected: Expected
+
+
+def caller_goal(scenario: Scenario) -> str:
+    return scenario.caller_goal or scenario.description
 
 
 def load_scenario(path: Path) -> Scenario:
@@ -93,6 +102,11 @@ class ScenarioResult:
     failures: list[str]
     # What the safety layer did, judged from outside: the script heard, or an Urgent Case reason.
     observed_safety: str = "none"
+    # For the metrics report (evals/report.py).
+    wrong_time: bool = False
+    escalations: tuple[tuple[str, str], ...] = ()  # (kind, reason) of each Escalation made
+    caller_turns: int = 0
+    transcript: tuple[Turn, ...] = ()
 
     @property
     def passed(self) -> bool:
@@ -104,18 +118,32 @@ def run_scenario(
     backend: httpx.Client,
     session_factory: SessionFactory,
     clock: Clock = system_clock,
+    llm: LLM | None = None,
+    caller: SimulatedCaller | None = None,
 ) -> ScenarioResult:
+    """Play one scenario. By default the scripted LLM replays `agent_script` and the Caller says
+    the scripted `turns`. Pass `llm` to replace the agent's LLM and `caller` to replace the
+    scripted turns with a simulated Caller."""
     if scenario.now is not None:
         cast(Any, clock).now = scenario.now  # only a settable (fake) clock can do this
     before = read_final_state(session_factory)
-    llm = ScriptedLLM([s.to_step() for s in scenario.agent_script])
+    llm = llm or ScriptedLLM([s.to_step() for s in scenario.agent_script])
     if scenario.clinic is not None:
         backend.put("/demo/clinic-override", json={"mode": scenario.clinic}).raise_for_status()
     try:
         clinic_open: bool = backend.get("/clinic-status").json()["open"]
         call: TextCall = open_text_call(backend, llm=llm, clock=clock)
-        for text in scenario.turns[: scenario.expected.max_turns]:
-            call.hear(text)
+        if caller is None:
+            for text in scenario.turns[: scenario.expected.max_turns]:
+                call.hear(text)
+            caller_turns = len(scenario.turns)
+        else:
+            caller_turns = 0
+            while (text := caller.respond(call.transcript)) is not None:
+                call.hear(text)
+                caller_turns += 1
+                if caller.hung_up:
+                    break
         call.end()
     finally:
         if scenario.clinic is not None:
@@ -125,11 +153,17 @@ def run_scenario(
         after=read_final_state(session_factory),
         tool_calls=call.tool_calls,
         transcript=call.transcript,
-        caller_turns=len(scenario.turns),
+        caller_turns=caller_turns,
         clinic_open=clinic_open,
     )
     return ScenarioResult(
-        scenario.id, judge(scenario.expected, observation), observed_safety(observation)
+        scenario.id,
+        judge(scenario.expected, observation),
+        observed_safety(observation),
+        wrong_time=wrong_time(observation),
+        escalations=tuple((e.kind, e.reason) for e in new_escalations_of(observation)),
+        caller_turns=caller_turns,
+        transcript=tuple(call.transcript),
     )
 
 
@@ -291,6 +325,27 @@ def confirm_without_readback(obs: Observation) -> list[str]:
         if tool.name == "confirm_appointment" and tool.ok and not read_back_done:
             found.append("a confirm succeeded before any read-back")
     return found
+
+
+def wrong_time(obs: Observation) -> bool:
+    """docs/metrics.md: an Appointment that overlaps another Confirmed one, or one at a time the
+    Caller was never offered (so never read back and agreed). Judged from the database and trace."""
+    return has_overlap(obs.after) or bool(unoffered_appointments(obs))
+
+
+def unoffered_appointments(obs: Observation) -> list[AppointmentRow]:
+    offered = {
+        t
+        for tool in obs.tool_calls
+        if tool.name == "check_availability"
+        for label in tool.data.get("offered", [])
+        for t in clock_times_in(label)
+    }
+    return [
+        a
+        for a in new_appointments(obs)
+        if not set(clock_times_in(format_time(a.starts_at))) <= offered
+    ]
 
 
 def invented_time(obs: Observation) -> list[str]:

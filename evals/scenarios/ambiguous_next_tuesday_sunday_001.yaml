@@ -1,6 +1,7 @@
 id: ambiguous_next_tuesday_sunday_001
 description: "Tricky call 3. Caller says 'next Tuesday' on a Sunday: the exact date is confirmed aloud before Availability is checked"
 persona: polite_rushed
+caller_goal: "You want a check-up 'next Tuesday' (say exactly those words, do not give a date). Today is a Sunday. You are Priya Sharma, phone +91 98765 43210. Confirm the date if asked, take the first time offered, and agree when the details are read back."
 now: "2026-11-01T11:00:00+05:30"
 turns:
   - "I'd like a check-up next Tuesday"

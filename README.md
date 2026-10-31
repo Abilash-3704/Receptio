@@ -45,6 +45,35 @@ uv run pytest tests/test_safety_scenarios.py -s # Emergency / Urgent Case recall
 
 The safety layer (Emergency and Urgent Case detector, fixed 112 script) and what it cannot cover are in `docs/safety.md`.
 
+### Eval harness and metrics report
+
+One command runs the scenario suite and writes the metrics table (Markdown and JSON) to `evals/reports/` (git-ignored):
+
+```
+uv run python -m evals                          # scripted: deterministic, free, no network, no key
+uv run python -m evals --write-baseline         # save this run as evals/baselines/scripted.json
+uv run python -m evals --check-baseline         # exit 1 if worse than the baseline (ticket 15's gate)
+```
+
+The scripted run uses the scripted LLM and the scripted Caller turns, both written by the author of the rules. Its 100% is a **regression gate, not evidence of real-model quality**. For meaningful recall and completion numbers, an LLM plays the Caller (personas `patient`, `rushed`, `confused`, `hostile`, in `evals/personas.yaml`; add your own with `--personas FILE`) and the real model plays the agent. That calls the real API and costs money, so it is opt-in:
+
+```
+uv sync --extra llm
+uv run python -m evals --mode simulated --dry-run                  # prints worst-case spend, calls nothing, needs no key
+ANTHROPIC_API_KEY=... uv run python -m evals --mode simulated --persona hostile --limit 3 --max-cost-usd 0.25
+```
+
+- Needs `ANTHROPIC_API_KEY` in the environment (never in a file that is committed). Without it the command refuses and exits 2.
+- Hard caps, defaults 150 requests and 1.00 USD (`--max-requests`, `--max-cost-usd`, or `EVAL_MAX_REQUESTS`, `EVAL_MAX_COST_USD`). When one is hit the run stops, a partial report is written marked ABORTED, and the exit code is 3. The scenario in flight is dropped.
+- The simulated Caller works from each scenario's `caller_goal` (or its `description`), never from the scripted `turns`. Only six scenarios have a written `caller_goal` with names and numbers; the rest rely on the description, so booking scenarios without one will often fail for lack of details. Add `caller_goal` where you want a scenario to be meaningful in simulated mode.
+- The CI and the tests never call the API; the simulator, metering and report are tested with a fake client (`tests/fake_anthropic.py`).
+
+What the report measures (targets in `docs/metrics.md`): task completion rate, wrong-time or overlapping-Appointment rate, Emergency recall and Urgent Case recall each next to its false-positive rate, escalation rate with Handoff versus Callback Request and reasons, cost per Call. Scenarios marked `known_gap: true` (probes of what the detector cannot see) are listed under "Known gaps" and never move a target. Latency is a clearly marked `not measured` field: it needs the voice pipeline (tickets 12 and 16).
+
+Cost per Call = (input tokens x input price + output tokens x output price) per model, summed over every request of the run (agent and simulated Caller) and divided by the Calls run. Token counts are real, taken from the API's `usage`. Prices come from `EVAL_PRICE_MAIN_INPUT_PER_MTOK`, `..._MAIN_OUTPUT_...`, `..._FAST_INPUT_...`, `..._FAST_OUTPUT_...` (USD per million tokens; `LLM_MODEL` is priced as main, `LLM_MODEL_FAST` and `EVAL_SIM_MODEL` as fast). **The built-in defaults are placeholders, not provider prices**: until you set those variables the report says `PLACEHOLDER prices`. Per-minute and per-3-minute figures assume 20 s per Caller turn (`EVAL_SECONDS_PER_CALLER_TURN`, also a placeholder), because text mode has no audio. Speech, telephony and hosting costs are not included.
+
+The baseline file is `{"schema_version": 1, "mode": ..., "metrics": {name: value}}` holding the gated metrics (higher or lower is better); `evals.baseline.compare_to_baseline(report, baseline, tolerance)` returns the regressions, empty meaning pass. Simulated runs are noisy, so `--check-baseline` allows a 0.05 tolerance there.
+
 Friction: the `llm` extra pulls in `httpx2`, which makes Starlette's `TestClient` subclass `httpx2.Client` instead of `httpx.Client`. Tests cast it back (see `tests/conftest.py`); the agent's backend code does not depend on httpx exception classes for that reason.
 
 ## Provider spend caps checklist

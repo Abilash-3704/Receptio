@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "mode": "scripted",
+  "metrics": {
+    "completion_rate": 1.0,
+    "wrong_time_rate": 0.0,
+    "emergency_recall": 1.0,
+    "emergency_false_positive_rate": 0.0,
+    "urgent_recall": 1.0,
+    "urgent_false_positive_rate": 0.0
+  }
+}

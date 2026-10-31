@@ -1,6 +1,7 @@
 id: reschedule_declined_016
 description: Caller hears the move read back and says no. The original Appointment is kept and nothing new is Confirmed
 persona: confused
+caller_goal: "You ask to move your existing appointment to Wednesday (you are Seeded Patient, phone +910000000000). Take the first time offered, but when the move is read back, decide you would rather keep your original appointment and say no."
 turns:
   - "Move my appointment to Wednesday. Seeded Patient, +910000000000"
   - "The first one"

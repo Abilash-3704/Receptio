@@ -19,3 +19,6 @@ node_modules/
 
 # agent worktrees
 .claude/
+
+# generated eval reports (the committed baselines are in evals/baselines)
+evals/reports/
