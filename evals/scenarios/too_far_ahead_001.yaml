@@ -1,0 +1,16 @@
+id: too_far_ahead_001
+description: "Nothing is booked more than 60 days ahead"
+persona: polite_rushed
+turns:
+  - "I'd like a check-up in 70 days"
+agent_script:
+  - tool: check_availability
+    args: {service: Check-up, when: in 70 days}
+  - say: "I can only book up to 60 days ahead. Could you pick an earlier day?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+  max_turns: 1

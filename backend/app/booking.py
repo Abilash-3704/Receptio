@@ -85,6 +85,19 @@ def _lock_hold(session: Session, hold_id: int) -> AppointmentRecord:
     return hold
 
 
+def release_hold(session: Session, hold_id: int, now: datetime) -> AppointmentRecord:
+    """Free a Hold's time before it expires, for example when the Caller changes their mind.
+    Releasing a Hold that is already released changes nothing."""
+    hold = _lock_hold(session, hold_id)
+    if hold.status == "confirmed":
+        raise reject(409, "a confirmed Appointment is not a Hold: cancel it instead")
+    if hold.status == "held":
+        hold.status = "released"
+        hold.expires_at = now
+        session.flush()
+    return hold
+
+
 def _require_live_hold(hold: AppointmentRecord, now: datetime) -> None:
     if hold.status == "confirmed":
         raise reject(409, "this Hold is already confirmed")

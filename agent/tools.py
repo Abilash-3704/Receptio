@@ -3,24 +3,31 @@ state machine decides what is allowed. Writes carry deterministic Idempotency-Ke
 tool call can never create a second Appointment."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
 import httpx
 
-from agent.call_state import CallState, HoldInfo, Offer
+from agent.availability_search import AvailabilitySearch
+from agent.call_state import CallState, HoldInfo
 from agent.llm import ToolSpec
-
-MAX_OFFERS = 3
+from agent.times import resolve, say_date
+from backend.app.clock import CLINIC_TZ, Clock, system_clock
 
 TOOL_SPECS = [
     ToolSpec(
         "check_availability",
-        "Look up open times for a Service on a date. Only times it returns may be offered.",
+        "Look up open times for a Service. Pass the Caller's own words for when, for example "
+        "'next Tuesday afternoon'; never work out a date yourself. Only times it returns may be "
+        "offered. If it asks you to confirm a date, ask the Caller and wait for a yes. Pass "
+        "provider only if the Caller named one.",
         {
             "type": "object",
-            "properties": {"service": {"type": "string"}, "date": {"type": "string"}},
-            "required": ["service", "date"],
+            "properties": {
+                "service": {"type": "string"},
+                "when": {"type": "string"},
+                "provider": {"type": "string"},
+            },
+            "required": ["service", "when"],
         },
     ),
     ToolSpec(
@@ -78,9 +85,10 @@ class ToolCall:
 class BackendError(Exception):
     """The clinic backend refused or failed a request. `detail` is its explanation."""
 
-    def __init__(self, detail: str) -> None:
+    def __init__(self, detail: str, status: int = 0) -> None:
         super().__init__(detail)
         self.detail = detail
+        self.status = status
 
 
 def checked(response: httpx.Response) -> httpx.Response:
@@ -89,12 +97,15 @@ def checked(response: httpx.Response) -> httpx.Response:
             detail = str(response.json().get("detail", response.text))
         except ValueError:
             detail = response.text
-        raise BackendError(detail)
+        raise BackendError(detail, response.status_code)
     return response
 
 
 class ToolBox:
-    def __init__(self, backend: httpx.Client, call_id: int, state: CallState) -> None:
+    def __init__(
+        self, backend: httpx.Client, call_id: int, state: CallState, clock: Clock = system_clock
+    ) -> None:
+        self._clock = clock
         self._backend = backend
         self._call_id = call_id
         self._state = state
@@ -121,38 +132,73 @@ class ToolBox:
         response = self._backend.post(path, headers={"Idempotency-Key": key}, json=json)
         return checked(response).json()
 
-    def _tool_check_availability(self, service: str, date: str) -> ToolResult:
+    def _release_live_hold(self) -> None:
+        """The Caller changed their mind: free the old Hold before a new one is placed."""
+        state = self._state
+        if state.hold is not None:
+            try:
+                self._post(f"/holds/{state.hold.id}/release", self._key("release"))
+            except BackendError:
+                pass  # already expired or gone: the time is free either way
+            state.hold = None
+        state.awaiting_read_back_answer = False
+        state.read_back_agreed = False
+
+    def _tool_check_availability(
+        self,
+        service: str,
+        when: str | None = None,
+        provider: str | None = None,
+        date: str | None = None,  # older spelling of `when`
+    ) -> ToolResult:
+        state = self._state
         services: list[dict[str, Any]] = self._backend.get("/services").json()
         match = next((s for s in services if s["name"].casefold() == service.casefold()), None)
         if match is None:
             names = [s["name"] for s in services]
             return ToolResult(False, {"error": f"unknown service; choose from {names}"})
         providers: list[dict[str, Any]] = self._backend.get("/providers").json()
-        provider_names = {p["id"]: p["name"] for p in providers}
-        response = self._backend.get(
-            "/availability",
-            params={
-                "service_id": match["id"],
-                "start": f"{date}T00:00:00+05:30",
-                "end": f"{date}T23:59:00+05:30",
-            },
+        names_by_id = {p["id"]: p["name"] for p in providers}
+        wanted: int | None = None
+        if provider:
+            wanted = next(
+                (i for i, n in names_by_id.items() if provider.casefold() in n.casefold()), None
+            )
+            if wanted is None:
+                return ToolResult(
+                    False, {"error": f"unknown provider; choose from {list(names_by_id.values())}"}
+                )
+
+        now = self._clock().astimezone(CLINIC_TZ)
+        resolution = resolve(when or date or "", now)
+        if resolution.unparsed:
+            return ToolResult(False, {"error": "not a time I can read: ask the Caller for a day"})
+        if resolution.needs_day:
+            return ToolResult(False, {"error": "ask the Caller which day they mean"})
+        proposed = resolution.dates[0]
+        if resolution.needs_confirmation and proposed not in state.confirmed_dates:
+            # The date is only searched once the Caller has agreed to it aloud.
+            state.pending_date = proposed
+            return ToolResult(
+                True,
+                {
+                    "confirm_date_with_caller": say_date(proposed),
+                    "other_possibility": [say_date(d) for d in resolution.alternatives],
+                },
+                refused=True,
+            )
+        state.pending_date = None
+        self._release_live_hold()  # a new search means the Caller has left the old time
+        state.service_id, state.service = match["id"], match["name"]
+
+        search = AvailabilitySearch(self._backend, match["id"], names_by_id, wanted, now).run(
+            resolution
         )
-        slots: list[dict[str, Any]] = checked(response).json()
-        seen: set[datetime] = set()
-        offers: list[Offer] = []
-        for slot in sorted(slots, key=lambda s: (s["start"], s["provider_id"])):
-            start = datetime.fromisoformat(slot["start"])
-            if start in seen:
-                continue
-            seen.add(start)
-            offers.append(Offer(slot["provider_id"], provider_names[slot["provider_id"]], start))
-        # Spread the offers over the day rather than listing the first three back to back.
-        step = max(1, len(offers) // MAX_OFFERS)
-        self._state.service_id = match["id"]
-        self._state.service = match["name"]
-        self._state.offers = offers[::step][:MAX_OFFERS]
-        self._state.ever_offered |= {o.start for o in self._state.offers}
-        return ToolResult(True, {"offered": [o.label for o in self._state.offers]})
+        state.offers = search.offers
+        state.ever_offered |= {o.start for o in search.offers}
+        if not search.ok:
+            return ToolResult(False, search.facts)
+        return ToolResult(True, {**search.facts, "offered": [o.label for o in search.offers]})
 
     def _tool_record_patient(self, name: str, phone: str) -> ToolResult:
         self._state.patient_name = name.strip()
@@ -164,6 +210,7 @@ class ToolBox:
         if not 1 <= option <= len(offers) or self._state.service_id is None:
             return ToolResult(False, {"error": "that is not one of the offered times"})
         offer = offers[option - 1]
+        self._release_live_hold()  # a correction: the previous Hold goes before a new one is placed
         body = self._post(
             "/holds",
             self._key("hold"),
@@ -174,6 +221,7 @@ class ToolBox:
             },
         )
         self._state.hold = HoldInfo(body["id"], offer)
+        self._state.hold_lost = None
         return ToolResult(True, {"hold": offer.label})
 
     def _tool_read_back(self) -> ToolResult:
@@ -202,11 +250,19 @@ class ToolBox:
                 {"error": "the Caller has not agreed to the read-back; read it back and wait"},
                 refused=True,
             )
-        appointment = self._post(
-            f"/holds/{state.hold.id}/confirm",
-            self._key("confirm"),
-            {"patient_name": state.patient_name, "patient_phone": state.patient_phone},
-        )
+        try:
+            appointment = self._post(
+                f"/holds/{state.hold.id}/confirm",
+                self._key("confirm"),
+                {"patient_name": state.patient_name, "patient_phone": state.patient_phone},
+            )
+        except BackendError as exc:
+            if exc.status == 409:  # the Hold expired or the time was taken: nothing is confirmed
+                self._lose_hold(exc.detail)
+                return ToolResult(
+                    False, {"error": exc.detail, "next": "check Availability again, then read back"}
+                )
+            raise
         state.appointment_id = appointment["id"]
         self._post(f"/appointments/{appointment['id']}/confirmation-message", self._key("message"))
         return ToolResult(True, {"confirmed": state.hold.offer.label})
@@ -215,6 +271,20 @@ class ToolBox:
         """Called by the state machine, never by the LLM, when the Caller says yes."""
         state = self._state
         assert state.hold is not None
-        self._post(f"/holds/{state.hold.id}/read-back", self._key("read-back"))
+        try:
+            self._post(f"/holds/{state.hold.id}/read-back", self._key("read-back"))
+        except BackendError as exc:
+            if exc.status != 409:
+                raise
+            self._lose_hold(exc.detail)  # the Hold expired while the Caller was thinking
+            return
         state.awaiting_read_back_answer = False
         state.read_back_agreed = True
+
+    def _lose_hold(self, reason: str) -> None:
+        """The Hold is gone: the Caller's yes (if any) was for a time that is no longer held."""
+        state = self._state
+        state.hold = None
+        state.awaiting_read_back_answer = False
+        state.read_back_agreed = False
+        state.hold_lost = reason

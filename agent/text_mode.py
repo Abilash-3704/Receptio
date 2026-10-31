@@ -13,6 +13,7 @@ from agent.call_state import CallState
 from agent.llm import LLM, LLMTurn, Message, Say
 from agent.time_guard import unoffered_times
 from agent.tools import TOOL_SPECS, ToolBox, ToolCall
+from backend.app.clock import Clock, system_clock
 
 DISCLOSURE = (
     "Hello, you've reached the clinic's receptionist. I'm an AI assistant, "
@@ -49,14 +50,20 @@ def is_explicit_yes(text: str) -> bool:
 
 
 class TextCall:
-    def __init__(self, backend: httpx.Client, call_id: int, llm: LLM | None = None) -> None:
+    def __init__(
+        self,
+        backend: httpx.Client,
+        call_id: int,
+        llm: LLM | None = None,
+        clock: Clock = system_clock,
+    ) -> None:
         self._backend = backend
         self.call_id = call_id
         self._llm = llm
         self.transcript: list[Turn] = []
         self.tool_calls: list[ToolCall] = []
         self._state = CallState()
-        self._tools = ToolBox(backend, call_id, self._state)
+        self._tools = ToolBox(backend, call_id, self._state, clock)
         self._messages: list[Message] = []
 
     def say(self, speaker: str, text: str) -> None:
@@ -71,8 +78,12 @@ class TextCall:
         """The Caller says something. Returns what the Caller hears in reply."""
         assert self._llm is not None, "this Call has no LLM"
         self.say("caller", caller_text)
-        if self._state.awaiting_read_back_answer and is_explicit_yes(caller_text):
-            self._tools.record_read_back_agreement()
+        if is_explicit_yes(caller_text):
+            if self._state.awaiting_read_back_answer:
+                self._tools.record_read_back_agreement()
+            elif self._state.pending_date is not None:
+                # The state machine, not the LLM, records that the Caller agreed to this date.
+                self._state.confirmed_dates.add(self._state.pending_date)
         spoken: list[str] = []
         for _ in range(MAX_STEPS_PER_TURN):
             step = self._llm.next_step(
@@ -108,9 +119,11 @@ class TextCall:
         self._backend.post(f"/calls/{self.call_id}/end").raise_for_status()
 
 
-def open_text_call(backend: httpx.Client, llm: LLM | None = None) -> TextCall:
+def open_text_call(
+    backend: httpx.Client, llm: LLM | None = None, clock: Clock = system_clock
+) -> TextCall:
     response = backend.post("/calls")
     response.raise_for_status()
-    call = TextCall(backend, int(response.json()["id"]), llm)
+    call = TextCall(backend, int(response.json()["id"]), llm, clock)
     call.say("agent", DISCLOSURE)
     return call

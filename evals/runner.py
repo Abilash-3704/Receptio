@@ -6,8 +6,9 @@ agent: the database before and after, the tools that were asked, and what the Ca
 the trace), so a regression in the agent core cannot hide itself."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import yaml
@@ -19,6 +20,7 @@ from agent.scripted_llm import ScriptedLLM
 from agent.text_mode import DISCLOSURE, TextCall, Turn, open_text_call
 from agent.time_guard import clock_times_in
 from agent.tools import ToolCall
+from backend.app.clock import Clock, system_clock
 from evals.state import AppointmentRow, FinalState, SessionFactory, read_final_state
 
 
@@ -50,6 +52,8 @@ class Scenario(BaseModel):
     id: str
     description: str
     persona: str
+    # The moment the Call starts, for scenarios that depend on it (a Sunday, nearly closing).
+    now: datetime | None = None
     turns: list[str]
     agent_script: list[ScriptStep] = Field(default_factory=lambda: [])
     expected: Expected
@@ -81,11 +85,16 @@ class ScenarioResult:
 
 
 def run_scenario(
-    scenario: Scenario, backend: httpx.Client, session_factory: SessionFactory
+    scenario: Scenario,
+    backend: httpx.Client,
+    session_factory: SessionFactory,
+    clock: Clock = system_clock,
 ) -> ScenarioResult:
+    if scenario.now is not None:
+        cast(Any, clock).now = scenario.now  # only a settable (fake) clock can do this
     before = read_final_state(session_factory)
     llm = ScriptedLLM([s.to_step() for s in scenario.agent_script])
-    call: TextCall = open_text_call(backend, llm=llm)
+    call: TextCall = open_text_call(backend, llm=llm, clock=clock)
     for text in scenario.turns[: scenario.expected.max_turns]:
         call.hear(text)
     call.end()
@@ -127,6 +136,8 @@ def check_final_state(expected: dict[str, Any], obs: Observation) -> list[str]:
         and new_ids
         == {m.appointment_id for m in obs.after.messages if m.appointment_id in new_ids},
         "overlapping_appointment": has_overlap(obs.after),
+        "unreleased_holds": obs.after.held - obs.before.held,
+        "appointment_date": new[0].starts_at.date().isoformat() if new else None,
     }
     failures: list[str] = []
     for key, want in expected.items():

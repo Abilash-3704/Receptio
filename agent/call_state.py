@@ -4,9 +4,10 @@ The LLM sees only `summary()`. Facts that matter for correctness (what was offer
 live, whether the Caller agreed to the read-back) are recorded here by code, never by the LLM."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
+from agent.times import say_date
 from backend.app.clock import CLINIC_TZ
 
 
@@ -47,6 +48,11 @@ class CallState:
     # Every start time Availability has returned and the agent offered during this Call.
     ever_offered: set[datetime] = field(default_factory=lambda: set())
     hold: HoldInfo | None = None
+    # A date the agent asked the Caller to agree to aloud, and the dates they have agreed to.
+    pending_date: date | None = None
+    confirmed_dates: set[date] = field(default_factory=lambda: set())
+    # Set when a Hold was lost (expired or taken) before the Caller's yes.
+    hold_lost: str | None = None
     awaiting_read_back_answer: bool = False
     read_back_agreed: bool = False
     appointment_id: int | None = None
@@ -70,6 +76,10 @@ class CallState:
             "missing": missing,
             "offered": [o.label for o in self.offers],
             "hold": None if self.hold is None else self.hold.offer.label,
+            "hold_lost": self.hold_lost,
+            "date_awaiting_caller_yes": None
+            if self.pending_date is None
+            else say_date(self.pending_date),
             "awaiting_read_back_answer": self.awaiting_read_back_answer,
             "read_back_agreed": self.read_back_agreed,
             "appointment_confirmed": self.appointment_id is not None,

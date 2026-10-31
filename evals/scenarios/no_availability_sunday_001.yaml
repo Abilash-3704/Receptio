@@ -1,0 +1,16 @@
+id: no_availability_sunday_001
+description: "The clinic is closed on Sunday: nothing is offered that day and the next open times are offered as alternatives"
+persona: polite_rushed
+turns:
+  - "Can I get a cleaning this Sunday?"
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: Sunday}
+  - say: "We're closed on Sunday. I can do {offered[0]} or {offered[1]} instead."
+expected:
+  final_state:
+    appointment_confirmed: false
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+  max_turns: 1

@@ -1,5 +1,6 @@
 """Availability: Provider working hours within Clinic Hours, fitted to a Service's duration,
-minus Appointments and unexpired Holds. Pure of HTTP; time comes in as an argument."""
+minus Appointments and unexpired Holds, within the booking window. Pure of HTTP; time comes in
+as an argument."""
 
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
@@ -19,6 +20,9 @@ from backend.app.db import (
 
 SLOT_STEP = timedelta(minutes=15)
 HOLD_DURATION = timedelta(minutes=5)
+# The booking window: Appointments start from 2 hours to 60 days ahead.
+MIN_NOTICE = timedelta(hours=2)
+MAX_AHEAD = timedelta(days=60)
 
 
 @dataclass(frozen=True)
@@ -86,7 +90,7 @@ def find_availability(
                 while slot_start + duration <= min(closes, end):
                     slot_end = slot_start + duration
                     clash = any(a.starts_at < slot_end and slot_start < a.ends_at for a in taken)
-                    if slot_start >= now and not clash:
+                    if now + MIN_NOTICE <= slot_start <= now + MAX_AHEAD and not clash:
                         slots.append(Slot(pid, slot_start, slot_end))
                     slot_start += SLOT_STEP
             day += timedelta(days=1)

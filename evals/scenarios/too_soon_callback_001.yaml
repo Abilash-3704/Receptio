@@ -1,0 +1,17 @@
+id: too_soon_callback_001
+description: "A request inside the 2-hour notice is not booked; the earliest bookable times are offered instead. Ticket 07 will add the Callback Request offer"
+persona: impatient
+now: "2026-11-02T09:30:00+05:30"
+turns:
+  - "Can I come in within the hour for a cleaning?"
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: in an hour}
+  - say: "I need at least two hours notice. The earliest I can do is {offered[0]}."
+expected:
+  final_state:
+    appointment_confirmed: false
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+  max_turns: 1
