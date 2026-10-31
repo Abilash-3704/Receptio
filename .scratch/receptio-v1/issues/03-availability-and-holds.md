@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] Seed data covers a few Providers, Services of different lengths and Clinic Hours
-- [ ] Availability respects Service duration, working hours, Appointments and Holds
-- [ ] A Hold removes that time from Availability for everyone else
-- [ ] A Hold expires after 5 minutes and the time becomes available again
-- [ ] Deterministic tests cover these behaviours with no LLM involved
+- [x] Seed data covers a few Providers, Services of different lengths and Clinic Hours
+- [x] Availability respects Service duration, working hours, Appointments and Holds
+- [x] A Hold removes that time from Availability for everyone else
+- [x] A Hold expires after 5 minutes and the time becomes available again
+- [x] Deterministic tests cover these behaviours with no LLM involved
