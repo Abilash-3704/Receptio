@@ -313,6 +313,45 @@ def test_reschedule_confirms_the_new_time_and_cancels_the_old_in_one_step(
     )
 
 
+def test_a_patient_can_move_an_appointment_to_an_overlapping_time_of_their_own(
+    backend: httpx.Client,
+) -> None:
+    original = booked(backend, "Filling", "Dr. Anita Rao", "2026-11-02 14:00")
+
+    hold = reschedule(backend, original["id"], "Dr. Anita Rao", "2026-11-02 14:15")
+
+    assert hold.status_code == 201, hold.text
+    read_back_reschedule(backend, hold.json()["id"])
+    assert confirm_reschedule(backend, hold.json()["id"]).status_code == 201
+    assert status_of(backend, original["id"]) == "cancelled"
+    # Only the new time is taken now: an hour ending at 14:15 is free, one starting at 14:00 not.
+    free = local(availability(backend, "Filling", "2026-11-02", provider="Dr. Anita Rao"))
+    assert "2026-11-02 13:15" in free
+    assert "2026-11-02 14:00" not in free
+
+
+def test_rescheduling_still_conflicts_with_other_patients_appointments(
+    backend: httpx.Client,
+) -> None:
+    original = booked(backend, "Filling", "Dr. Anita Rao", "2026-11-02 14:00")
+    booked(backend, "Filling", "Dr. Anita Rao", "2026-11-02 15:00", name="Ravi Kumar")
+
+    overlaps_other = reschedule(backend, original["id"], "Dr. Anita Rao", "2026-11-02 14:45")
+
+    assert overlaps_other.status_code == 409
+
+
+def test_rescheduling_still_conflicts_with_a_live_hold_of_someone_else(
+    backend: httpx.Client,
+) -> None:
+    original = booked(backend, "Filling", "Dr. Anita Rao", "2026-11-02 14:00")
+    held(backend, "Filling", "Dr. Anita Rao", "2026-11-02 15:00")
+
+    overlaps_hold = reschedule(backend, original["id"], "Dr. Anita Rao", "2026-11-02 14:45")
+
+    assert overlaps_hold.status_code == 409
+
+
 def test_a_failed_reschedule_leaves_the_original_confirmed(
     backend: httpx.Client, clock: FakeClock
 ) -> None:

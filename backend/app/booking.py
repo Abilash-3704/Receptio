@@ -70,7 +70,11 @@ def place_hold(
 ) -> AppointmentRecord:
     lock_provider(session, provider_id)
     end = start + timedelta(minutes=service.duration_minutes)
-    open_times = find_availability(session, service, provider_id, start, end, now)
+    # A reschedule may overlap the Appointment it replaces: that one is cancelled by the same
+    # confirm that books the new time (confirm re-checks everything else, and so do the
+    # database constraints).
+    ignoring = frozenset() if replaces is None else frozenset({replaces.id})
+    open_times = find_availability(session, service, provider_id, start, end, now, ignoring)
     if not any(s.start == start for s in open_times):
         raise reject(409, "that time is not available")
     hold = AppointmentRecord(

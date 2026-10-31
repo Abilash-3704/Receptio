@@ -37,15 +37,22 @@ def _local(day: datetime, at: time) -> datetime:
 
 
 def blocking_appointments(
-    session: Session, provider_id: int, start: datetime, end: datetime, now: datetime
+    session: Session,
+    provider_id: int,
+    start: datetime,
+    end: datetime,
+    now: datetime,
+    ignoring: frozenset[int] = frozenset(),
 ) -> list[AppointmentRecord]:
-    """Confirmed Appointments and unexpired Holds overlapping [start, end) for a Provider."""
+    """Confirmed Appointments and unexpired Holds overlapping [start, end) for a Provider, except
+    the ids in `ignoring` (the Appointment a reschedule replaces)."""
     candidates = session.scalars(
         select(AppointmentRecord).where(
             AppointmentRecord.provider_id == provider_id,
             AppointmentRecord.starts_at < end,
             AppointmentRecord.ends_at > start,
             AppointmentRecord.status.in_(("held", "confirmed")),
+            AppointmentRecord.id.not_in(ignoring),
         )
     )
     return [
@@ -62,6 +69,7 @@ def find_availability(
     start: datetime,
     end: datetime,
     now: datetime,
+    ignoring: frozenset[int] = frozenset(),
 ) -> list[Slot]:
     duration = timedelta(minutes=service.duration_minutes)
     clinic_hours = {row.weekday: row for row in session.scalars(select(ClinicHoursRow))}
@@ -76,7 +84,7 @@ def find_availability(
             w.weekday: w
             for w in session.scalars(select(WorkingHours).where(WorkingHours.provider_id == pid))
         }
-        taken = blocking_appointments(session, pid, start, end, now)
+        taken = blocking_appointments(session, pid, start, end, now, ignoring)
         day = start.astimezone(CLINIC_TZ)
         last_day = end.astimezone(CLINIC_TZ).date()
         while day.date() <= last_day:
