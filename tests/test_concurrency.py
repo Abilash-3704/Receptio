@@ -6,17 +6,25 @@ within a few rounds instead of passing by luck."""
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from threading import Barrier
 
 import httpx
+import pytest
 
-from tests.support import confirm, held, new_key, place_hold, read_back
+from tests.support import FakeClock, confirm, held, new_key, place_hold, read_back
 from tests.test_confirm_cancel_reschedule import (
     booked,
     confirm_reschedule,
     reschedule,
     status_of,
 )
+
+
+@pytest.fixture(autouse=True)
+def _early_clock(clock: FakeClock) -> None:
+    clock.advance(timedelta(hours=-2))  # 06:00, so the 2-hour notice does not hide 09:00
+
 
 CONTENDERS = 8
 ROUNDS = 12
@@ -109,14 +117,14 @@ def test_concurrent_confirms_for_one_patient_at_overlapping_times_confirm_one(
 ) -> None:
     backend = postgres_backend
 
-    for start in TIMES[2:8]:  # 10:00 to 12:30, inside Dr. Shetty's hours too
+    for n, start in enumerate(TIMES[2:8]):  # 10:00 to 12:30, inside Dr. Shetty's hours too
         # Two Providers, overlapping times, one Patient: both Holds are legitimate and both
         # are read back, so only the Patient rule can stop the second Appointment.
         first = held(backend, "Check-up", "Dr. Anita Rao", start)
         second = held(backend, "Check-up", "Dr. Vikram Shetty", later(start))
         read_back(backend, first)
         read_back(backend, second)
-        name = f"Patient {start}"
+        name = f"Patient {chr(ord('A') + n)}"  # letters only: names are validated
 
         responses = race(
             [
@@ -135,9 +143,17 @@ def test_concurrent_reschedules_of_one_appointment_confirm_exactly_one(
     backend = postgres_backend
 
     for n, start in enumerate(TIMES[:6]):
-        original = booked(backend, "Check-up", "Dr. Anita Rao", start, name=f"Patient {n}")
+        original = booked(
+            backend, "Check-up", "Dr. Anita Rao", start, name=f"Patient {chr(ord('A') + n)}"
+        )
         holds = [
-            reschedule(backend, original["id"], "Dr. Vikram Shetty", slot).json()["id"]
+            reschedule(
+                backend,
+                original["id"],
+                "Dr. Vikram Shetty",
+                slot,
+                name=f"Patient {chr(ord('A') + n)}",
+            ).json()["id"]
             for slot in (f"2026-11-0{3 + k} {10 + n}:00" for k in range(3))
         ]
         for hold_id in holds:

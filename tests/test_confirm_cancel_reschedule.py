@@ -38,7 +38,13 @@ def booked(
 
 
 def reschedule(
-    backend: httpx.Client, appointment_id: int, provider: str, start: str, key: str | None = None
+    backend: httpx.Client,
+    appointment_id: int,
+    provider: str,
+    start: str,
+    key: str | None = None,
+    name: str = "Asha Menon",
+    phone: str = "+91 98450 12345",
 ) -> httpx.Response:
     return backend.post(
         f"/appointments/{appointment_id}/reschedule",
@@ -46,6 +52,8 @@ def reschedule(
         json={
             "provider_id": provider_id(backend, provider),
             "start": f"{start.replace(' ', 'T')}:00+05:30",
+            "patient_name": name,
+            "patient_phone": phone,
         },
     )
 
@@ -57,9 +65,17 @@ def confirm_reschedule(
     return backend.post(f"/holds/{hold_id}/confirm", headers={"Idempotency-Key": key or new_key()})
 
 
-def cancel(backend: httpx.Client, appointment_id: int, key: str | None = None) -> httpx.Response:
+def cancel(
+    backend: httpx.Client,
+    appointment_id: int,
+    key: str | None = None,
+    name: str = "Asha Menon",
+    phone: str = "+91 98450 12345",
+) -> httpx.Response:
     return backend.post(
-        f"/appointments/{appointment_id}/cancel", headers={"Idempotency-Key": key or new_key()}
+        f"/appointments/{appointment_id}/cancel",
+        headers={"Idempotency-Key": key or new_key()},
+        json={"patient_name": name, "patient_phone": phone},
     )
 
 
@@ -237,9 +253,9 @@ def test_cancel_works_at_any_time_and_twice_changes_nothing(
 
     assert cancel(backend, appointment["id"]).status_code == 200
     assert cancel(backend, appointment["id"]).json()["status"] == "cancelled"
-    assert cancel(backend, 9999).status_code == 404
+    assert cancel(backend, 9999).status_code == 403  # same as a wrong identity
     hold_id = held(backend, "Filling", "Dr. Anita Rao", "2026-11-03 14:00")
-    assert cancel(backend, hold_id).status_code == 409  # a Hold is not an Appointment
+    assert cancel(backend, hold_id).status_code == 403  # a Hold is not an Appointment
 
 
 def test_reschedule_confirms_the_new_time_and_cancels_the_old_in_one_step(
@@ -285,15 +301,20 @@ def test_a_failed_reschedule_leaves_the_original_confirmed(
     unread = reschedule(backend, original["id"], "Dr. Vikram Shetty", "2026-11-02 12:00").json()
     assert confirm_reschedule(backend, unread["id"]).status_code == 409
     # The Appointment being rescheduled was cancelled meanwhile: nothing is revived.
-    late = reschedule(backend, other["id"], "Dr. Vikram Shetty", "2026-11-02 13:00").json()
+    late = reschedule(
+        backend, other["id"], "Dr. Vikram Shetty", "2026-11-02 13:00", name="Ravi Kumar"
+    ).json()
     read_back(backend, late["id"])
-    cancel(backend, other["id"])
+    cancel(backend, other["id"], name="Ravi Kumar")
     assert confirm_reschedule(backend, late["id"]).status_code == 409
 
     assert status_of(backend, original["id"]) == "confirmed"
     assert status_of(backend, other["id"]) == "cancelled"
-    assert reschedule(backend, 9999, "Dr. Anita Rao", "2026-11-02 16:00").status_code == 404
-    assert reschedule(backend, other["id"], "Dr. Anita Rao", "2026-11-02 16:00").status_code == 409
+    assert reschedule(backend, 9999, "Dr. Anita Rao", "2026-11-02 16:00").status_code == 403
+    cancelled = reschedule(
+        backend, other["id"], "Dr. Anita Rao", "2026-11-02 16:00", name="Ravi Kumar"
+    )
+    assert cancelled.status_code == 409
 
 
 def test_a_reschedule_into_another_of_the_patients_appointments_is_rejected_whole(

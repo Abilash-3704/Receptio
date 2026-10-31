@@ -22,6 +22,15 @@ from agent.escalation import (
     asks_for_human,
     phone_in,
 )
+from agent.faq import (
+    MEDICAL_REASON,
+    MEDICAL_SPEECH,
+    accepts_callback,
+    asks_for_medical_advice,
+    declines_callback,
+    known_clock_times,
+    unknown_amounts,
+)
 from agent.llm import LLM, LLMTurn, Message, Say
 from agent.safety import (
     EMERGENCY,
@@ -34,6 +43,7 @@ from agent.safety import (
 )
 from agent.time_guard import unoffered_times
 from agent.tools import TOOL_SPECS, ToolBox, ToolCall
+from backend.app.clock import Clock, system_clock
 
 DISCLOSURE = (
     "Hello, you've reached the clinic's receptionist. I'm an AI assistant, "
@@ -70,14 +80,20 @@ def is_explicit_yes(text: str) -> bool:
 
 
 class TextCall:
-    def __init__(self, backend: httpx.Client, call_id: int, llm: LLM | None = None) -> None:
+    def __init__(
+        self,
+        backend: httpx.Client,
+        call_id: int,
+        llm: LLM | None = None,
+        clock: Clock = system_clock,
+    ) -> None:
         self._backend = backend
         self.call_id = call_id
         self._llm = llm
         self.transcript: list[Turn] = []
         self.tool_calls: list[ToolCall] = []
         self._state = CallState()
-        self._tools = ToolBox(backend, call_id, self._state)
+        self._tools = ToolBox(backend, call_id, self._state, clock)
         self._messages: list[Message] = []
 
     def say(self, speaker: str, text: str) -> None:
@@ -104,17 +120,48 @@ class TextCall:
             return self._take_callback_number(caller_text)
         if asks_for_human(caller_text):
             return self._escalate(HUMAN_REASON)
-        if self._state.awaiting_read_back_answer and is_explicit_yes(caller_text):
-            self._tools.record_read_back_agreement()
+        state = self._state
+        if state.callback_offer is not None and not (
+            state.awaiting_read_back_answer or state.pending_date is not None
+        ):
+            if accepts_callback(caller_text):
+                reason, state.callback_offer = state.callback_offer, None
+                return self._escalate(reason)
+            if declines_callback(caller_text):
+                state.callback_offer = None
+        if asks_for_medical_advice(caller_text):
+            state.callback_offer = MEDICAL_REASON
+            medical: list[str] = []
+            self._speak(MEDICAL_SPEECH, medical)
+            return medical
+        if is_explicit_yes(caller_text):
+            if self._state.awaiting_read_back_answer:
+                self._tools.record_read_back_agreement()
+            elif self._state.pending_date is not None:
+                # The state machine, not the LLM, records that the Caller agreed to this date.
+                self._state.confirmed_dates.add(self._state.pending_date)
+            elif self._state.callback_offer is not None:
+                reason, self._state.callback_offer = self._state.callback_offer, None
+                return self._escalate(reason)
+        if self._state.awaiting_cancel_answer:
+            self._tools.record_cancel_answer(is_explicit_yes(caller_text))
         spoken: list[str] = []
         for _ in range(MAX_STEPS_PER_TURN):
             step = self._llm.next_step(
                 LLMTurn(self._state.summary(), list(self._messages), TOOL_SPECS)
             )
             if isinstance(step, Say):
-                if unoffered_times(step.text, self._state.ever_offered):
+                facts = self._state.known_facts
+                if set(unoffered_times(step.text, self._state.ever_offered)) - known_clock_times(
+                    facts
+                ):
                     # Withheld: the Caller never hears a time Availability did not return.
                     error = {"error": "you named a time that Availability did not return"}
+                    self._messages.append(Message("tool", json.dumps(error)))
+                    continue
+                if unknown_amounts(step.text, facts):
+                    # Withheld: only price ranges that search_faq returned may be said.
+                    error = {"error": "you named a price that search_faq did not return"}
                     self._messages.append(Message("tool", json.dumps(error)))
                     continue
                 self._speak(step.text, spoken)
@@ -214,9 +261,11 @@ class TextCall:
         self._backend.post(f"/calls/{self.call_id}/end").raise_for_status()
 
 
-def open_text_call(backend: httpx.Client, llm: LLM | None = None) -> TextCall:
+def open_text_call(
+    backend: httpx.Client, llm: LLM | None = None, clock: Clock = system_clock
+) -> TextCall:
     response = backend.post("/calls")
     response.raise_for_status()
-    call = TextCall(backend, int(response.json()["id"]), llm)
+    call = TextCall(backend, int(response.json()["id"]), llm, clock)
     call.say("agent", DISCLOSURE)
     return call

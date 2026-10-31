@@ -3,25 +3,38 @@ scenarios) run through the scenario runner, and the recall and false-positive me
 Targets (spec): Emergency recall 100%, Urgent Case recall at least 95%. False positives are
 tracked, with a ceiling here so over-flagging cannot buy recall."""
 
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
+from backend.app.config import BackendSettings
+from backend.app.main import create_app
 from evals.runner import load_scenario
 from evals.safety_metrics import compute, run_all
+from tests.support import START_OF_TEST, FakeClock
 
 SCENARIOS = Path(__file__).parent.parent / "evals" / "scenarios"
 
 
-def session_factory(backend: httpx.Client) -> Any:
-    return cast(Any, backend).app.state.session_factory
+@contextmanager
+def fresh_backend() -> Generator[tuple[httpx.Client, Any]]:
+    """A new backend on in-memory SQLite at the test clock, one per scenario."""
+    settings = BackendSettings(
+        database_url="sqlite+pysqlite:///:memory:", demo_controls_enabled=True
+    )
+    app = create_app(settings, clock=FakeClock(START_OF_TEST))
+    with TestClient(app, base_url="http://backend") as client:
+        yield cast(httpx.Client, client), app.state.session_factory
 
 
-@pytest.fixture
-def report(backend: httpx.Client) -> Any:
-    runs = run_all(SCENARIOS, backend, session_factory(backend))
+@pytest.fixture(scope="module")
+def report() -> Any:
+    runs = run_all(SCENARIOS, fresh_backend)
     metrics = compute(runs)
     print("\n" + metrics.render())
     return metrics

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app import booking, clinic_hours
+from backend.app import booking, clinic_hours, knowledge
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
 from backend.app.config import BackendSettings
 from backend.app.db import (
@@ -77,10 +77,23 @@ class ConfirmIn(BaseModel):
     patient_phone: str
 
 
-class RescheduleIn(BaseModel):
+class IdentityIn(BaseModel):
+    patient_name: str
+    patient_phone: str
+
+
+class RescheduleIn(IdentityIn):
     provider_id: BodyId
     start: datetime
     service_id: BodyId | None = None  # defaults to the original Appointment's Service
+
+
+class AppointmentSummaryOut(BaseModel):
+    id: int
+    service: str
+    provider: str
+    start: datetime
+    end: datetime
 
 
 class AppointmentOut(BaseModel):
@@ -139,6 +152,11 @@ def escalation_out(record: EscalationRecord) -> EscalationOut:
 
 # Longest single utterance stored in a transcript. Caller speech is untrusted input.
 MAX_TURN_CHARS = 2000
+
+
+class FaqEntryOut(BaseModel):
+    topic: str
+    text: str
 
 
 class TurnIn(BaseModel):
@@ -294,6 +312,15 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
             session, idempotency_key, "POST /holds", body.model_dump(mode="json"), work
         )
 
+    @app.post("/holds/{hold_id}/release", response_model=None)
+    def release_hold(  # pyright: ignore[reportUnusedFunction]
+        hold_id: int, session: SessionDep, idempotency_key: IdempotencyKey
+    ) -> JSONResponse:
+        def work() -> tuple[int, BaseModel]:
+            return 200, hold_out(booking.release_hold(session, hold_id, clock()))
+
+        return run_idempotent(session, idempotency_key, f"POST /holds/{hold_id}/release", {}, work)
+
     @app.post("/holds/{hold_id}/read-back", response_model=None)
     def record_read_back(  # pyright: ignore[reportUnusedFunction]
         hold_id: RowId, session: SessionDep, idempotency_key: IdempotencyKey
@@ -304,15 +331,6 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         return run_idempotent(
             session, idempotency_key, f"POST /holds/{hold_id}/read-back", {}, work
         )
-
-    @app.post("/holds/{hold_id}/release", response_model=None)
-    def release_hold(  # pyright: ignore[reportUnusedFunction]
-        hold_id: RowId, session: SessionDep, idempotency_key: IdempotencyKey
-    ) -> JSONResponse:
-        def work() -> tuple[int, BaseModel]:
-            return 200, hold_out(booking.release_hold(session, hold_id))
-
-        return run_idempotent(session, idempotency_key, f"POST /holds/{hold_id}/release", {}, work)
 
     @app.post("/holds/{hold_id}/confirm", status_code=201, response_model=None)
     def confirm_hold(  # pyright: ignore[reportUnusedFunction]
@@ -340,15 +358,50 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
             raise HTTPException(status_code=404, detail="appointment not found")
         return appointment_out(session, record)
 
+    @app.post("/appointments/lookup")
+    def lookup_appointments(  # pyright: ignore[reportUnusedFunction]
+        body: IdentityIn, session: SessionDep
+    ) -> list[AppointmentSummaryOut]:
+        """A Patient's upcoming Confirmed Appointments, only if full name AND phone both match.
+        Any failure is the same 403, so nothing leaks about who or what exists."""
+        found = booking.upcoming_appointments(
+            session, (body.patient_name, body.patient_phone), clock()
+        )
+        summaries: list[AppointmentSummaryOut] = []
+        for a in found:
+            service, provider = (
+                session.get(Service, a.service_id),
+                session.get(Provider, a.provider_id),
+            )
+            assert service is not None and provider is not None
+            summaries.append(
+                AppointmentSummaryOut(
+                    id=a.id,
+                    service=service.name,
+                    provider=provider.name,
+                    start=a.starts_at,
+                    end=a.ends_at,
+                )
+            )
+        return summaries
+
     @app.post("/appointments/{appointment_id}/cancel", response_model=None)
     def cancel_appointment(  # pyright: ignore[reportUnusedFunction]
-        appointment_id: RowId, session: SessionDep, idempotency_key: IdempotencyKey
+        appointment_id: RowId,
+        body: IdentityIn,
+        session: SessionDep,
+        idempotency_key: IdempotencyKey,
     ) -> JSONResponse:
         def work() -> tuple[int, BaseModel]:
-            return 200, appointment_out(session, booking.cancel(session, appointment_id))
+            identity = (body.patient_name, body.patient_phone)
+            return 200, appointment_out(session, booking.cancel(session, appointment_id, identity))
 
         return run_idempotent(
-            session, idempotency_key, f"POST /appointments/{appointment_id}/cancel", {}, work
+            session,
+            idempotency_key,
+            f"POST /appointments/{appointment_id}/cancel",
+            body.model_dump(),
+            work,
         )
 
     @app.post("/appointments/{appointment_id}/reschedule", status_code=201, response_model=None)
@@ -362,7 +415,9 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         is read back and confirmed, which cancels this Appointment in the same transaction."""
 
         def work() -> tuple[int, BaseModel]:
-            original = booking.start_reschedule(session, appointment_id)
+            original = booking.start_reschedule(
+                session, appointment_id, (body.patient_name, body.patient_phone)
+            )
             service = get_service(session, body.service_id or original.service_id)
             get_provider(session, body.provider_id)
             hold = booking.place_hold(
@@ -416,6 +471,12 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         if clinic_override[0] is not None:
             return clinic_override[0] == "open"
         return clinic_hours.is_open(session, clock())
+
+    @app.get("/faq")
+    def faq(session: SessionDep, q: str | None = None) -> list[FaqEntryOut]:  # pyright: ignore[reportUnusedFunction]
+        """The knowledge base. With `q`, only the entries that answer it (possibly none)."""
+        found = knowledge.entries(session) if q is None else knowledge.search(session, q)
+        return [FaqEntryOut(topic=e.topic, text=e.text) for e in found]
 
     @app.get("/clinic-status")
     def clinic_status(session: SessionDep) -> dict[str, bool | str | None]:  # pyright: ignore[reportUnusedFunction]

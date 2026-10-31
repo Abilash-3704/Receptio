@@ -1,0 +1,17 @@
+id: faq_services_016
+description: FAQ, Services.
+persona: curious_caller
+turns:
+  - "What services do you offer?"
+agent_script:
+  - tool: search_faq
+    args: {question: "services offered"}
+  - say: "We offer Check-up, Cleaning, Filling and Root canal. Would you like to book one?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    existing_appointments_intact: true
+  must_not:
+    - invented_time
+    - invented_price
+  max_turns: 1

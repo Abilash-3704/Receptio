@@ -43,7 +43,7 @@ It is a keyword and rule detector. Each item below is a probe scenario or strict
 Scripted-LLM scenarios in `evals/scenarios` (run by `tests/test_safety_scenarios.py`, which prints the report with `-s`):
 
 - Emergency recall: 15 of 15 (100%). Urgent Case recall: 12 of 12 (100%). Urgent Cases given the Emergency script: 0.
-- False positives: 0 of 24 negative scenarios flagged (these include "emergency meeting", "emergency contact number", tooth sensitivity, bleeding gums when flossing, "out of breath", "nothing urgent", and every other scenario in the suite).
+- False positives: 0 of 40 negative scenarios flagged (these include "emergency meeting", "emergency contact number", tooth sensitivity, bleeding gums when flossing, "out of breath", "nothing urgent", and every other scenario in the suite).
 - Probes written to find gaps (`known_gap: true`, kept out of the targets): 7. None is handled correctly today: 3 Emergency misses (euphemism, paraphrase, Hindi), 2 Urgent misses (idiom, no keyword), 2 false positives (past heart attack, "choking up").
 
 Read these as a regression gate, not as field accuracy. The scenarios were written by the same person who wrote the rules, so 100% on them says the rules do what their author intended; it is not an estimate of recall on real Callers. The probes are the more honest signal of the gaps, and the real recall on an independent sample will be lower. Independent phrasings (for example from the LLM-driven simulated Caller, when that exists) are the next step.

@@ -94,6 +94,19 @@ def _lock_hold(session: Session, hold_id: int) -> AppointmentRecord:
     return hold
 
 
+def release_hold(session: Session, hold_id: int, now: datetime) -> AppointmentRecord:
+    """Free a Hold's time before it expires, for example when the Caller changes their mind.
+    Releasing a Hold that is already released changes nothing."""
+    hold = _lock_hold(session, hold_id)
+    if hold.status == "confirmed":
+        raise reject(409, "a confirmed Appointment is not a Hold: cancel it instead")
+    if hold.status == "held":
+        hold.status = "released"
+        hold.expires_at = now
+        session.flush()
+    return hold
+
+
 def _require_live_hold(hold: AppointmentRecord, now: datetime) -> None:
     if hold.status == "confirmed":
         raise reject(409, "this Hold is already confirmed")
@@ -108,18 +121,6 @@ def record_read_back(session: Session, hold_id: int, now: datetime) -> Appointme
     _require_live_hold(hold, now)
     hold.read_back_at = now
     session.flush()
-    return hold
-
-
-def release_hold(session: Session, hold_id: int) -> AppointmentRecord:
-    """Free a Hold's time now. Releasing twice, or a Hold that already expired, changes nothing;
-    a Confirmed Appointment is never released (cancel it instead)."""
-    hold = _lock_hold(session, hold_id)
-    if hold.status == "confirmed":
-        raise reject(409, "this is a Confirmed Appointment, not a Hold: it cannot be released")
-    if hold.status == "held":
-        hold.status = "cancelled"
-        session.flush()
     return hold
 
 
@@ -200,22 +201,66 @@ def confirm(
     return hold
 
 
-def cancel(session: Session, appointment_id: int) -> AppointmentRecord:
+IDENTIFICATION_FAILED = "identification failed"
+
+
+def identify(session: Session, name: str, phone: str) -> Patient:
+    """The Patient whose full name AND phone on file both match, else one uniform 403. Malformed
+    details fail the same way as a wrong match, so a Caller learns nothing from the difference."""
+    try:
+        _, key = normalise_name(name)
+        number = normalise_phone(phone)
+    except HTTPException:
+        raise reject(403, IDENTIFICATION_FAILED) from None
+    patient = session.scalar(
+        select(Patient).where(Patient.name_key == key, Patient.phone == number)
+    )
+    if patient is None:
+        raise reject(403, IDENTIFICATION_FAILED)
+    return patient
+
+
+def owned_appointment(
+    session: Session, appointment_id: int, identity: tuple[str, str]
+) -> AppointmentRecord:
+    """An Appointment, only for the Patient it belongs to. A missing id, a Hold and someone
+    else's Appointment all fail with the same 403 as a wrong name or phone."""
+    patient = identify(session, *identity)
     appointment = session.get(AppointmentRecord, appointment_id)
-    if appointment is None:
-        raise reject(404, "appointment not found")
+    if appointment is None or appointment.patient_id != patient.id:
+        raise reject(403, IDENTIFICATION_FAILED)
+    return appointment
+
+
+def upcoming_appointments(
+    session: Session, identity: tuple[str, str], now: datetime
+) -> list[AppointmentRecord]:
+    patient = identify(session, *identity)
+    return list(
+        session.scalars(
+            select(AppointmentRecord)
+            .where(
+                AppointmentRecord.patient_id == patient.id,
+                AppointmentRecord.status == "confirmed",
+                AppointmentRecord.starts_at > now,
+            )
+            .order_by(AppointmentRecord.starts_at)
+        )
+    )
+
+
+def cancel(session: Session, appointment_id: int, identity: tuple[str, str]) -> AppointmentRecord:
+    appointment = owned_appointment(session, appointment_id, identity)
     session.refresh(appointment, with_for_update=True)
-    if appointment.status == "held":
-        raise reject(409, "a Hold is not an Appointment: it expires on its own")
     appointment.status = "cancelled"  # cancelling twice changes nothing
     session.flush()
     return appointment
 
 
-def start_reschedule(session: Session, appointment_id: int) -> AppointmentRecord:
-    original = session.get(AppointmentRecord, appointment_id)
-    if original is None:
-        raise reject(404, "appointment not found")
+def start_reschedule(
+    session: Session, appointment_id: int, identity: tuple[str, str]
+) -> AppointmentRecord:
+    original = owned_appointment(session, appointment_id, identity)
     if original.status != "confirmed":
         raise reject(409, "only a confirmed Appointment can be rescheduled")
     return original

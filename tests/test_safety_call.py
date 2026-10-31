@@ -138,7 +138,7 @@ def test_an_emergency_cannot_be_confirmed_after_the_read_back_was_agreed(
 
     assert heard == [EMERGENCY_SCRIPT]
     assert backend.get("/escalations").json()
-    assert backend.get(f"/appointments/{hold.id}").json()["status"] == "cancelled"
+    assert backend.get(f"/appointments/{hold.id}").json()["status"] == "released"
 
 
 def test_an_urgent_case_gets_an_escalation_and_no_112_script(backend: httpx.Client) -> None:

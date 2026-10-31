@@ -1,0 +1,26 @@
+id: wrong_identity_cancel_014
+description: Tricky call 14. Caller gives a correct name but the wrong phone number, twice. Nothing is revealed, the Appointment is untouched, and a Callback Request is taken
+persona: confused
+clinic: closed
+turns:
+  - "I want to cancel my appointment. I'm Seeded Patient, number 98450 99999"
+  - "It's 98450 99999, I'm sure"
+  - "You can ring me on 98450 12347"
+agent_script:
+  - tool: identify_patient
+    args: {name: Seeded Patient, phone: "98450 99999"}
+  - say: "I couldn't match those details. Could you say your full name and phone number again?"
+  - tool: identify_patient
+    args: {name: Seeded Patient, phone: "98450 99999"}
+expected:
+  final_state:
+    appointments_cancelled: 0
+    existing_appointments_intact: true
+    escalation_kind: callback_request
+    escalation_reason_recorded: true
+    escalation_phone_recorded: true
+  must_not:
+    - revealed_before_identification
+    - handoff_when_closed
+    - escalation_without_reason
+  max_turns: 3
