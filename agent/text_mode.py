@@ -9,7 +9,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import httpx
@@ -86,7 +86,7 @@ class TurnProfile:
     llm_steps: int = 0
     llm_ms: int = 0
     tool_ms: int = 0
-    tools: list[str] | None = None
+    tools: list[str] = field(default_factory=list)
 
 
 MAX_STEPS_PER_TURN = 8
@@ -147,7 +147,7 @@ class TextCall:
         self._llm = llm
         self.transcript: list[Turn] = []
         self.tool_calls: list[ToolCall] = []
-        self.last_turn_profile = TurnProfile(tools=[])
+        self.last_turn_profile = TurnProfile()
         self._state = CallState()
         self._tools = ToolBox(backend, call_id, self._state, clock)
         self._messages: list[Message] = []
@@ -219,7 +219,7 @@ class TextCall:
         """The Caller says something. Returns what the Caller hears in reply."""
         assert self._llm is not None, "this Call has no LLM"
         with self._lock:
-            self.last_turn_profile = TurnProfile(tools=[])
+            self.last_turn_profile = TurnProfile()
             if self._state.limit_reached or (
                 self._limits is not None and self._elapsed() >= self._limits.max_seconds
             ):
@@ -306,7 +306,7 @@ class TextCall:
             tool_started = time.monotonic()
             result = self._run_tool(step, spoken)
             self.last_turn_profile.tool_ms += round((time.monotonic() - tool_started) * 1000)
-            (self.last_turn_profile.tools or []).append(step.name)
+            self.last_turn_profile.tools.append(step.name)
             self.tool_calls.append(
                 ToolCall(step.name, step.args, result.ok, result.refused, result.data)
             )

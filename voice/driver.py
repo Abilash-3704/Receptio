@@ -49,7 +49,7 @@ class VoiceTurnDriver:
             llm_steps=profile.llm_steps,
             llm_ms=profile.llm_ms,
             tool_ms=profile.tool_ms,
-            tools=list(profile.tools or []),
+            tools=list(profile.tools),
         )
         first = True
         for utterance in spoken:

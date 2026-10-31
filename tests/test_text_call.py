@@ -35,3 +35,12 @@ def test_text_call_opens_with_disclosure_and_ends_cleanly(backend: httpx.Client)
     assert record["status"] == "ended"
     assert record["ended_at"] is not None
     assert [t["speaker"] for t in record["transcript"]][0] == "agent"
+
+
+def test_the_turn_profile_names_the_tools_a_turn_used() -> None:
+    from agent.text_mode import TurnProfile
+
+    profile = TurnProfile()
+    profile.tools.append("check_availability")
+    assert profile.tools == ["check_availability"]
+    assert TurnProfile().tools == []  # not shared between profiles
