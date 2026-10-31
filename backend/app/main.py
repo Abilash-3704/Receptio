@@ -231,15 +231,19 @@ class LlmCallIn(BaseModel):
     duration_ms: Annotated[int, Field(ge=0, le=10**7)] | None = None
 
 
+# A duration in milliseconds, bounded like `LlmCallIn.duration_ms` (and inside a 4-byte column).
+Millis = Annotated[int, Field(ge=0, le=10**7)]
+
+
 class TurnTimingIn(BaseModel):
     """One line of voice/timing.py's per-turn record."""
 
     caller_turn_seq: Annotated[int, Field(ge=1, le=MAX_ID)] | None = None
-    asr_final_ms: int | None = None
-    llm_first_token_ms: int | None = None
-    tts_first_audio_ms: int | None = None
-    total_ms: int | None = None
-    total_from_speech_end_ms: int | None = None
+    asr_final_ms: Millis | None = None
+    llm_first_token_ms: Millis | None = None
+    tts_first_audio_ms: Millis | None = None
+    total_ms: Millis | None = None
+    total_from_speech_end_ms: Millis | None = None
     interrupted: bool = False
 
 
@@ -629,7 +633,7 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     @app.post("/calls/{call_id}/escalations", status_code=201, response_model=None)
     def escalate(  # pyright: ignore[reportUnusedFunction]
-        call_id: int, body: EscalationIn, session: SessionDep, idempotency_key: IdempotencyKey
+        call_id: RowId, body: EscalationIn, session: SessionDep, idempotency_key: IdempotencyKey
     ) -> JSONResponse:
         """Pass the Call to staff. The backend decides the kind: a Handoff during Clinic Hours,
         otherwise a Callback Request. A Callback Request may be asked for at any time; a Handoff

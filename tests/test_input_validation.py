@@ -154,3 +154,42 @@ def test_transcript_turns_must_have_a_known_speaker_and_sane_text(
 
     assert backend.post(f"/calls/{call_id}/turns", json=turn).status_code == 422
     assert backend.get(f"/calls/{call_id}").json()["transcript"] == []
+
+
+@pytest.mark.parametrize("bad_id", [-1, 0, 2**31, 10**30])
+def test_every_call_and_hold_route_rejects_an_id_outside_the_database_range(
+    backend: httpx.Client, bad_id: int
+) -> None:
+    key = {"Idempotency-Key": new_key()}
+    turn = {"speaker": "caller", "text": "hello"}
+    escalation = {"reason": "wants a human"}
+    responses = [
+        backend.get(f"/calls/{bad_id}"),
+        backend.post(f"/calls/{bad_id}/turns", json=turn),
+        backend.post(f"/calls/{bad_id}/escalations", headers=key, json=escalation),
+        backend.post(f"/calls/{bad_id}/turn-timings", json={}),
+        backend.post(f"/calls/{bad_id}/end"),
+        backend.post(f"/holds/{bad_id}/release", headers=key),
+        backend.post(f"/appointments/{bad_id}/confirmation-message", headers=key),
+    ]
+
+    # 422 (out of range) or 404 (in range, unknown): never a server error.
+    assert [r.status_code for r in responses if r.status_code not in (404, 422)] == []
+    assert all(r.status_code == 422 for r in responses if bad_id > 2**31 - 1 or bad_id < 1)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["asr_final_ms", "llm_first_token_ms", "tts_first_audio_ms", "total_ms", "total_from_speech_end_ms"],
+)
+@pytest.mark.parametrize("bad", [-1, 2**31, 10**30])
+def test_a_turn_timing_outside_a_sane_range_is_rejected_not_a_server_error(
+    backend: httpx.Client, field: str, bad: int
+) -> None:
+    call_id = backend.post("/calls", json={"mode": "voice"}).json()["id"]
+
+    response = backend.post(f"/calls/{call_id}/turn-timings", json={field: bad})
+
+    assert response.status_code == 422
+    ok = backend.post(f"/calls/{call_id}/turn-timings", json={field: 1500})
+    assert ok.status_code == 201
