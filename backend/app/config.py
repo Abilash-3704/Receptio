@@ -40,6 +40,18 @@ class BackendSettings(BaseSettings):
     # Set in any deployed environment (the public demo). Makes caps_test_mode impossible.
     deployed_environment: bool = False
 
+    # Rate limits (ticket 20), in process; see backend/app/ratelimit.py. Abuse throttles only: the
+    # daily caps above stay the cost guard.
+    # Capacity admission requests per client IP per minute. The web service asks once per token
+    # request and has its own, lower limit in front, so this is the backstop behind it.
+    admission_requests_per_minute_per_ip: int = Field(default=30, ge=1)
+    # Failed identification attempts (name + phone) allowed within the window before further
+    # attempts are refused: per name, per phone, and across everyone. See identity_throttle.py.
+    identity_failure_window_seconds: int = Field(default=600, ge=1)
+    identity_failures_per_name: int = Field(default=5, ge=1)
+    identity_failures_per_phone: int = Field(default=5, ge=1)
+    identity_failures_global: int = Field(default=30, ge=1)
+
     @model_validator(mode="after")
     def _no_test_mode_when_deployed(self) -> "BackendSettings":
         if self.caps_test_mode and self.deployed_environment:

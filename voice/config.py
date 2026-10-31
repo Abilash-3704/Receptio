@@ -1,4 +1,4 @@
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +36,10 @@ class VoiceSettings(BaseSettings):
     # default) ignores the header entirely and uses the connection's own address, which a client
     # cannot choose. Set it to the real number only behind proxies you run.
     trusted_proxy_hops: int = 0
+    # Abuse throttle on POST /token, per client address (voice/web.py; same address rules as the
+    # cost guard). Requests over it get a 429 before the cost guard is asked, so they use up none
+    # of anyone's daily allowance. A person clicking Start does not come near 10 a minute.
+    token_requests_per_minute_per_ip: int = Field(default=10, ge=1)
 
     @property
     def browser_url(self) -> str:

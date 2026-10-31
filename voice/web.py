@@ -18,8 +18,11 @@ Limits, stated plainly: this is a cost guard, not identity. Someone who changes 
 cookies can still start Calls; the global daily cap is what bounds total spend. Many people behind
 one shared address (an office) share that address's ceiling."""
 
+import math
 import re
 import secrets
+import time
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 
@@ -28,6 +31,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from livekit import api
 
+from backend.app.ratelimit import SlidingWindowLimiter
 from voice.admission import admit
 from voice.config import VoiceSettings
 
@@ -35,6 +39,7 @@ PAGE = Path(__file__).parent / "web" / "index.html"
 TOKEN_TTL_SECONDS = 10 * 60  # long enough to join; the Call itself is not bounded by it
 BROWSER_COOKIE = "receptio_browser"
 BROWSER_COOKIE_MAX_AGE = 365 * 24 * 3600
+RATE_LIMITED_MESSAGE = "Too many requests. Please wait a moment and try again."
 _BROWSER_ID = re.compile(r"[0-9a-f]{32}")
 
 
@@ -51,13 +56,16 @@ def client_ip(request: Request, trusted_proxy_hops: int) -> str:
 
 
 def create_app(
-    settings: VoiceSettings | None = None, backend: httpx.Client | None = None
+    settings: VoiceSettings | None = None,
+    backend: httpx.Client | None = None,
+    now: Callable[[], float] = time.monotonic,
 ) -> FastAPI:
     settings = settings or VoiceSettings()
     backend = backend or httpx.Client(
         base_url=settings.backend_url, timeout=httpx.Timeout(settings.backend_timeout_seconds)
     )
     app = FastAPI(title="Receptio web client")
+    limiter = SlidingWindowLimiter(settings.token_requests_per_minute_per_ip, 60, now)
 
     @app.get("/")
     def index() -> FileResponse:  # pyright: ignore[reportUnusedFunction]
@@ -69,12 +77,21 @@ def create_app(
 
     @app.post("/token", response_model=None)
     def token(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        ip = client_ip(request, settings.trusted_proxy_hops)
+        wait = limiter.hit(ip)
+        if wait is not None:
+            # Before the cost guard is asked: nothing here is counted against anyone's allowance.
+            return JSONResponse(
+                {"reason": "rate_limited", "message": RATE_LIMITED_MESSAGE},
+                status_code=429,
+                headers={"Retry-After": str(max(1, math.ceil(wait)))},
+            )
         browser = request.cookies.get(BROWSER_COOKIE, "")
         issued_cookie = _BROWSER_ID.fullmatch(browser) is None
         if issued_cookie:
             browser = secrets.token_hex(16)
         room = f"call-{secrets.token_hex(6)}"
-        admission = admit(backend, room, browser, client_ip(request, settings.trusted_proxy_hops))
+        admission = admit(backend, room, browser, ip)
         if admission.admitted:
             identity = f"caller-{secrets.token_hex(4)}"
             jwt = (

@@ -1,5 +1,6 @@
+import math
 from collections.abc import AsyncGenerator, Iterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
 
@@ -28,7 +29,9 @@ from backend.app.db import (
     create_db_engine,
 )
 from backend.app.idempotency import run_idempotent
+from backend.app.identity_throttle import IdentityThrottle
 from backend.app.migrate import upgrade
+from backend.app.ratelimit import SlidingWindowLimiter
 from backend.app.scheduling import find_availability
 from backend.app.seed import seed
 
@@ -291,6 +294,14 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
     app.state.session_factory = session_factory
     app.state.prices = prices
 
+    def seconds() -> float:
+        return clock().timestamp()  # the injected clock, so tests move the windows
+
+    admission_limiter = SlidingWindowLimiter(
+        settings.admission_requests_per_minute_per_ip, 60, seconds
+    )
+    identity = IdentityThrottle(settings, seconds)
+
     def get_call(session: Session, call_id: int) -> CallRecord:
         record = session.get(CallRecord, call_id)
         if record is None:
@@ -370,6 +381,17 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
             replaces_id=record.replaces_id,
         )
 
+    @contextmanager
+    def identified(session: Session, hold_id: int, who: tuple[str, str] | None) -> Iterator[None]:
+        """Throttle identification on a Hold, but only a reschedule Hold asks for it: a new
+        booking's name and phone are details to record, not a claim to be someone."""
+        hold = session.get(AppointmentRecord, hold_id)
+        if who is None or hold is None or hold.replaces_id is None:
+            yield
+        else:
+            with identity.guard(*who):
+                yield
+
     @app.post("/holds", status_code=201, response_model=None)
     def place_hold(  # pyright: ignore[reportUnusedFunction]
         body: HoldIn, session: SessionDep, idempotency_key: IdempotencyKey
@@ -403,8 +425,10 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         body: IdentityIn | None = None,
     ) -> JSONResponse:
         def work() -> tuple[int, BaseModel]:
-            identity = None if body is None else (body.patient_name, body.patient_phone)
-            return 200, hold_out(booking.record_read_back(session, hold_id, identity, clock()))
+            who = None if body is None else (body.patient_name, body.patient_phone)
+            with identified(session, hold_id, who):
+                hold = booking.record_read_back(session, hold_id, who, clock())
+            return 200, hold_out(hold)
 
         payload = {} if body is None else body.model_dump()
         return run_idempotent(
@@ -420,7 +444,8 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
     ) -> JSONResponse:
         def work() -> tuple[int, BaseModel]:
             patient = None if body is None else (body.patient_name, body.patient_phone)
-            appointment = booking.confirm(session, hold_id, patient, clock())
+            with identified(session, hold_id, patient):
+                appointment = booking.confirm(session, hold_id, patient, clock())
             return 201, appointment_out(session, appointment)
 
         payload = {} if body is None else body.model_dump()
@@ -434,9 +459,10 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
     ) -> AppointmentOut:
         """An Appointment, only for the Patient whose full name AND phone match. An unknown id, a
         Hold and someone else's Appointment all fail with the same 403 as a wrong identity."""
-        record = booking.owned_appointment(
-            session, appointment_id, (body.patient_name, body.patient_phone)
-        )
+        with identity.guard(body.patient_name, body.patient_phone):
+            record = booking.owned_appointment(
+                session, appointment_id, (body.patient_name, body.patient_phone)
+            )
         return appointment_out(session, record)
 
     @app.post("/appointments/lookup")
@@ -445,9 +471,10 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
     ) -> list[AppointmentSummaryOut]:
         """A Patient's upcoming Confirmed Appointments, only if full name AND phone both match.
         Any failure is the same 403, so nothing leaks about who or what exists."""
-        found = booking.upcoming_appointments(
-            session, (body.patient_name, body.patient_phone), clock()
-        )
+        with identity.guard(body.patient_name, body.patient_phone):
+            found = booking.upcoming_appointments(
+                session, (body.patient_name, body.patient_phone), clock()
+            )
         summaries: list[AppointmentSummaryOut] = []
         for a in found:
             service, provider = (
@@ -474,8 +501,10 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         idempotency_key: IdempotencyKey,
     ) -> JSONResponse:
         def work() -> tuple[int, BaseModel]:
-            identity = (body.patient_name, body.patient_phone)
-            return 200, appointment_out(session, booking.cancel(session, appointment_id, identity))
+            who = (body.patient_name, body.patient_phone)
+            with identity.guard(*who):
+                cancelled = booking.cancel(session, appointment_id, who)
+            return 200, appointment_out(session, cancelled)
 
         return run_idempotent(
             session,
@@ -496,9 +525,10 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         is read back and confirmed, which cancels this Appointment in the same transaction."""
 
         def work() -> tuple[int, BaseModel]:
-            original = booking.start_reschedule(
-                session, appointment_id, (body.patient_name, body.patient_phone)
-            )
+            with identity.guard(body.patient_name, body.patient_phone):
+                original = booking.start_reschedule(
+                    session, appointment_id, (body.patient_name, body.patient_phone)
+                )
             service = get_service(session, body.service_id or original.service_id)
             get_provider(session, body.provider_id)
             hold = booking.place_hold(
@@ -612,6 +642,16 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
     @app.post("/capacity/admissions", status_code=201, response_model=None)
     def admit_call(body: AdmissionIn, session: SessionDep) -> JSONResponse | dict[str, str]:  # pyright: ignore[reportUnusedFunction]
         """Ask to start a Call. Called by the token endpoint before it issues a token."""
+        wait = admission_limiter.hit(body.ip)
+        if wait is not None:  # before the cost guard: no counter is touched
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "reason": "rate_limited",
+                    "message": "Too many requests. Please wait a moment and try again.",
+                },
+                headers={"Retry-After": str(max(1, math.ceil(wait)))},
+            )
         refused = capacity.admit(session, settings, clock(), body.room, body.browser, body.ip)
         if refused is not None:
             return JSONResponse(
