@@ -28,7 +28,7 @@ Step = Say | UseTool
 
 @dataclass(frozen=True)
 class Message:
-    role: Literal["caller", "agent", "tool"]
+    role: Literal["caller", "agent", "tool_call", "tool"]
     content: str
 
 

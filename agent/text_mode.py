@@ -86,6 +86,8 @@ class TextCall:
                     continue
                 self._speak(step.text, spoken)
                 return spoken
+            call_text = json.dumps({"tool": step.name, "args": step.args})
+            self._messages.append(Message("tool_call", call_text))
             result = self._tools.run(step.name, step.args)
             self.tool_calls.append(
                 ToolCall(step.name, step.args, result.ok, result.refused, result.data)
