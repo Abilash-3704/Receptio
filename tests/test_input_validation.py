@@ -7,7 +7,6 @@ import httpx
 import pytest
 
 from tests.support import (
-    Json,
     confirm,
     held,
     new_key,
@@ -15,12 +14,6 @@ from tests.support import (
     read_back,
     service_id,
 )
-
-
-def appointment(backend: httpx.Client, appointment_id: int) -> Json:
-    response = backend.get(f"/appointments/{appointment_id}")
-    assert response.status_code == 200
-    return response.json()
 
 
 @pytest.mark.parametrize(
@@ -44,7 +37,7 @@ def test_confirm_rejects_a_patient_name_that_is_not_a_name(
     response = confirm(backend, hold, name=name)
 
     assert response.status_code == 422
-    assert appointment(backend, hold)["status"] == "held"
+    assert confirm(backend, hold).status_code == 201  # the Hold is untouched: still confirmable
 
 
 @pytest.mark.parametrize(
@@ -65,7 +58,7 @@ def test_confirm_rejects_a_phone_number_that_is_not_one(backend: httpx.Client, p
     read_back(backend, hold)
 
     assert confirm(backend, hold, phone=phone).status_code == 422
-    assert appointment(backend, hold)["status"] == "held"
+    assert confirm(backend, hold).status_code == 201  # the Hold is untouched: still confirmable
 
 
 @pytest.mark.parametrize(
@@ -114,7 +107,8 @@ def test_path_ids_that_cannot_exist_get_a_client_error_not_a_server_error(
     backend: httpx.Client, bad_id: int
 ) -> None:
     key = {"Idempotency-Key": new_key()}
-    assert backend.get(f"/appointments/{bad_id}").status_code in (404, 422)
+    identity = {"patient_name": "Asha Menon", "patient_phone": "+91 98450 12345"}
+    assert backend.post(f"/appointments/{bad_id}/read", json=identity).status_code in (403, 422)
     assert backend.post(f"/holds/{bad_id}/read-back", headers=key).status_code in (404, 422)
     assert backend.post(f"/holds/{bad_id}/confirm", headers=key).status_code in (404, 422)
     assert backend.post(f"/appointments/{bad_id}/cancel", headers=key).status_code in (404, 422)
@@ -137,7 +131,11 @@ def test_confirming_without_a_read_back_is_rejected_whatever_the_agent_claims(
     )
 
     assert response.status_code == 409
-    assert appointment(backend, hold)["status"] == "held"
+    assert (
+        confirm(backend, hold).status_code == 409
+    )  # still no read-back: the claim changed nothing
+    assert read_back(backend, hold).status_code == 200
+    assert confirm(backend, hold).status_code == 201
 
 
 @pytest.mark.parametrize(

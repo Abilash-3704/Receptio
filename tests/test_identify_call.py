@@ -11,7 +11,7 @@ from agent.llm import Say, Step, UseTool
 from agent.scripted_llm import ScriptedLLM
 from agent.text_mode import TextCall, open_text_call
 from tests.support import FakeClock
-from tests.test_confirm_cancel_reschedule import booked
+from tests.test_confirm_cancel_reschedule import booked, status_of
 
 ASHA = {"name": "Asha Menon", "phone": "+91 98450 12345"}
 IDENTIFY_ASHA = UseTool("identify_patient", {"name": ASHA["name"], "phone": ASHA["phone"]})
@@ -83,6 +83,22 @@ def test_two_failed_identifications_lead_to_a_callback_request(backend: httpx.Cl
     assert [a["id"] for a in asha_appointments(backend)] == [appointment["id"]]
 
 
+def test_two_failed_identifications_during_clinic_hours_are_still_a_callback_request(
+    backend: httpx.Client,
+) -> None:
+    book_filling(backend)
+    backend.put("/demo/clinic-override", json={"mode": "open"})
+    call = call_with(backend, [BAD_PHONE, Say("That doesn't match. Once more?"), BAD_PHONE])
+
+    call.hear("Cancel my appointment, Asha Menon, 98450 99999")
+    call.hear("It's 98450 99999")
+    heard = call.hear("+91 98450 12347")  # the number to call back
+
+    [stored] = escalations(backend)
+    assert (stored["kind"], stored["caller_phone"]) == ("callback_request", "+919845012347")
+    assert "call you back" in heard[-1]
+
+
 def test_a_cancel_is_read_back_and_only_happens_after_an_explicit_yes(
     backend: httpx.Client,
 ) -> None:
@@ -111,7 +127,7 @@ def test_a_cancel_is_read_back_and_only_happens_after_an_explicit_yes(
 
     assert call.hear("Yes, that's right") == ["Done, it's cancelled."]
     assert asha_appointments(backend) == []
-    assert backend.get(f"/appointments/{appointment['id']}").json()["status"] == "cancelled"
+    assert status_of(backend, appointment["id"]) == "cancelled"
 
 
 def test_a_no_to_the_cancel_read_back_keeps_the_appointment(backend: httpx.Client) -> None:
@@ -163,7 +179,7 @@ def test_the_agent_asks_which_appointment_when_more_than_one_matches(
     call.hear("Yes")
 
     assert [a["id"] for a in asha_appointments(backend)] == [first["id"]]
-    assert backend.get(f"/appointments/{second['id']}").json()["status"] == "cancelled"
+    assert status_of(backend, second["id"]) == "cancelled"
 
 
 def test_a_reschedule_is_read_back_then_moves_the_appointment_on_yes(
@@ -195,8 +211,8 @@ def test_a_reschedule_is_read_back_then_moves_the_appointment_on_yes(
 
     [moved] = asha_appointments(backend)
     assert moved["id"] != original["id"] and moved["start"].startswith("2026-11-04")
-    assert backend.get(f"/appointments/{original['id']}").json()["status"] == "cancelled"
-    assert backend.get(f"/appointments/{moved['id']}").json()["replaces_id"] == original["id"]
+    assert status_of(backend, original["id"]) == "cancelled"
+    assert status_of(backend, moved["id"]) == "confirmed"
 
 
 def test_a_reschedule_that_falls_through_keeps_the_original(

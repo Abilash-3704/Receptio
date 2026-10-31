@@ -128,6 +128,9 @@ class ClinicOverrideIn(BaseModel):
 class EscalationIn(BaseModel):
     reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
     caller_phone: str | None = None
+    # Normally absent: the backend decides from Clinic Hours. A Callback Request can be forced
+    # (a request too soon to book, failed identification); a Handoff only while open.
+    kind: Literal["handoff", "callback_request"] | None = None
 
 
 class EscalationOut(BaseModel):
@@ -323,13 +326,18 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     @app.post("/holds/{hold_id}/read-back", response_model=None)
     def record_read_back(  # pyright: ignore[reportUnusedFunction]
-        hold_id: RowId, session: SessionDep, idempotency_key: IdempotencyKey
+        hold_id: RowId,
+        session: SessionDep,
+        idempotency_key: IdempotencyKey,
+        body: IdentityIn | None = None,
     ) -> JSONResponse:
         def work() -> tuple[int, BaseModel]:
-            return 200, hold_out(booking.record_read_back(session, hold_id, clock()))
+            identity = None if body is None else (body.patient_name, body.patient_phone)
+            return 200, hold_out(booking.record_read_back(session, hold_id, identity, clock()))
 
+        payload = {} if body is None else body.model_dump()
         return run_idempotent(
-            session, idempotency_key, f"POST /holds/{hold_id}/read-back", {}, work
+            session, idempotency_key, f"POST /holds/{hold_id}/read-back", payload, work
         )
 
     @app.post("/holds/{hold_id}/confirm", status_code=201, response_model=None)
@@ -349,13 +357,15 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
             session, idempotency_key, f"POST /holds/{hold_id}/confirm", payload, work
         )
 
-    @app.get("/appointments/{appointment_id}")
+    @app.post("/appointments/{appointment_id}/read")
     def read_appointment(  # pyright: ignore[reportUnusedFunction]
-        appointment_id: RowId, session: SessionDep
+        appointment_id: RowId, body: IdentityIn, session: SessionDep
     ) -> AppointmentOut:
-        record = session.get(AppointmentRecord, appointment_id)
-        if record is None:
-            raise HTTPException(status_code=404, detail="appointment not found")
+        """An Appointment, only for the Patient whose full name AND phone match. An unknown id, a
+        Hold and someone else's Appointment all fail with the same 403 as a wrong identity."""
+        record = booking.owned_appointment(
+            session, appointment_id, (body.patient_name, body.patient_phone)
+        )
         return appointment_out(session, record)
 
     @app.post("/appointments/lookup")
@@ -494,14 +504,19 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         call_id: int, body: EscalationIn, session: SessionDep, idempotency_key: IdempotencyKey
     ) -> JSONResponse:
         """Pass the Call to staff. The backend decides the kind: a Handoff during Clinic Hours,
-        otherwise a Callback Request."""
+        otherwise a Callback Request. A Callback Request may be asked for at any time; a Handoff
+        never while the clinic is closed."""
 
         def work() -> tuple[int, BaseModel]:
             get_call(session, call_id)
+            is_open = clinic_is_open(session)
+            if body.kind == "handoff" and not is_open:
+                raise HTTPException(status_code=422, detail="no Handoff while the clinic is closed")
+            kind = body.kind or ("handoff" if is_open else "callback_request")
             phone = None if not body.caller_phone else booking.normalise_phone(body.caller_phone)
             record = EscalationRecord(
                 call_id=call_id,
-                kind="handoff" if clinic_is_open(session) else "callback_request",
+                kind=kind,
                 reason=body.reason,
                 caller_phone=phone,
                 created_at=clock(),

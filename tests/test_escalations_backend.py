@@ -93,3 +93,28 @@ def test_retrying_an_escalation_with_the_same_key_stores_one(backend: httpx.Clie
 
 def test_escalating_an_unknown_call_is_not_found(backend: httpx.Client) -> None:
     assert escalate(backend, 999).status_code == 404
+
+
+def test_a_forced_callback_request_is_recorded_even_during_clinic_hours(
+    backend: httpx.Client, clock: FakeClock
+) -> None:
+    clock.advance(timedelta(hours=2))  # Monday 10:00, open
+    call_id = open_call(backend)
+
+    response = escalate(backend, call_id, "wanted a time too soon", kind="callback_request")
+
+    assert response.status_code == 201
+    assert response.json()["kind"] == "callback_request"
+
+
+def test_a_handoff_can_never_be_forced_while_the_clinic_is_closed(backend: httpx.Client) -> None:
+    call_id = open_call(backend)  # Monday 08:00, closed
+
+    response = escalate(backend, call_id, kind="handoff")
+
+    assert response.status_code == 422
+    assert backend.get("/escalations").json() == []
+
+
+def test_an_unknown_kind_is_rejected(backend: httpx.Client) -> None:
+    assert escalate(backend, open_call(backend), kind="page_the_dentist").status_code == 422

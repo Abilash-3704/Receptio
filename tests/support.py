@@ -81,10 +81,18 @@ def place_hold(
     )
 
 
-def read_back(backend: httpx.Client, hold_id: int, key: str | None = None) -> httpx.Response:
-    """Record the Caller's explicit agreement to the read-back for this exact Hold."""
+def read_back(
+    backend: httpx.Client,
+    hold_id: int,
+    key: str | None = None,
+    name: str | None = None,
+    phone: str | None = None,
+) -> httpx.Response:
+    """Record the Caller's explicit agreement to the read-back for this exact Hold. A reschedule
+    Hold also needs the identified Patient's name and phone."""
+    details = None if name is None else {"patient_name": name, "patient_phone": phone}
     return backend.post(
-        f"/holds/{hold_id}/read-back", headers={"Idempotency-Key": key or new_key()}
+        f"/holds/{hold_id}/read-back", headers={"Idempotency-Key": key or new_key()}, json=details
     )
 
 
