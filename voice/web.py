@@ -28,6 +28,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from livekit import api
 
+from backend.app.redaction import install_log_redaction
 from voice.admission import admit
 from voice.config import VoiceSettings
 
@@ -53,6 +54,7 @@ def client_ip(request: Request, trusted_proxy_hops: int) -> str:
 def create_app(
     settings: VoiceSettings | None = None, backend: httpx.Client | None = None
 ) -> FastAPI:
+    install_log_redaction()
     settings = settings or VoiceSettings()
     backend = backend or httpx.Client(
         base_url=settings.backend_url, timeout=httpx.Timeout(settings.backend_timeout_seconds)

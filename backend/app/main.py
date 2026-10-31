@@ -30,6 +30,7 @@ from backend.app.db import (
 )
 from backend.app.idempotency import run_idempotent
 from backend.app.migrate import upgrade
+from backend.app.redaction import install_log_redaction
 from backend.app.scheduling import find_availability
 from backend.app.seed import seed
 
@@ -274,6 +275,7 @@ IdempotencyKey = Annotated[str, Header(min_length=1, max_length=128)]
 
 
 def create_app(settings: BackendSettings | None = None, clock: Clock = system_clock) -> FastAPI:
+    install_log_redaction()
     settings = settings or BackendSettings()
     engine = create_db_engine(settings)
     session_factory = sessionmaker(engine, expire_on_commit=False)

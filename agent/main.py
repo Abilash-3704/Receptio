@@ -10,9 +10,11 @@ from fastapi import FastAPI
 from agent.backend_client import make_backend_client
 from agent.config import AgentSettings
 from agent.text_mode import open_text_call
+from backend.app.redaction import install_log_redaction
 
 
 def create_app(settings: AgentSettings | None = None) -> FastAPI:
+    install_log_redaction()
     settings = settings or AgentSettings()
     app = FastAPI(title="Receptio agent")
 
