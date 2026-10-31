@@ -1,0 +1,196 @@
+"""Minimal scenario runner (PROJECT.md section 4, scripted-LLM mode only).
+
+Plays a scenario's Caller turns through a text-mode Call and judges the outcome from outside the
+agent: the database before and after, the tools that were asked, and what the Caller heard. The
+`must_not` rules deliberately do not trust the agent's own gating (they re-check the database and
+the trace), so a regression in the agent core cannot hide itself."""
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import httpx
+import yaml
+from pydantic import BaseModel, ConfigDict, Field
+
+from agent.call_state import format_time
+from agent.llm import Say, Step, UseTool
+from agent.scripted_llm import ScriptedLLM
+from agent.text_mode import DISCLOSURE, TextCall, Turn, open_text_call
+from agent.time_guard import clock_times_in
+from agent.tools import ToolCall
+from evals.state import AppointmentRow, FinalState, SessionFactory, read_final_state
+
+
+class ScriptStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    say: str | None = None
+    tool: str | None = None
+    args: dict[str, Any] = Field(default_factory=dict)
+
+    def to_step(self) -> Step:
+        if self.say is not None:
+            return Say(self.say)
+        assert self.tool is not None, "a script step needs either say or tool"
+        return UseTool(self.tool, self.args)
+
+
+class Expected(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    final_state: dict[str, Any] = Field(default_factory=dict)
+    must_not: list[str] = Field(default_factory=lambda: [])
+    max_turns: int
+
+
+class Scenario(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    description: str
+    persona: str
+    turns: list[str]
+    agent_script: list[ScriptStep] = Field(default_factory=lambda: [])
+    expected: Expected
+
+
+def load_scenario(path: Path) -> Scenario:
+    return Scenario.model_validate(yaml.safe_load(path.read_text()))
+
+
+@dataclass(frozen=True)
+class Observation:
+    """Everything a rule may look at. Nothing from inside the agent core."""
+
+    before: FinalState
+    after: FinalState
+    tool_calls: list[ToolCall]
+    transcript: list[Turn]
+    caller_turns: int
+
+
+@dataclass(frozen=True)
+class ScenarioResult:
+    scenario_id: str
+    failures: list[str]
+
+    @property
+    def passed(self) -> bool:
+        return not self.failures
+
+
+def run_scenario(
+    scenario: Scenario, backend: httpx.Client, session_factory: SessionFactory
+) -> ScenarioResult:
+    before = read_final_state(session_factory)
+    llm = ScriptedLLM([s.to_step() for s in scenario.agent_script])
+    call: TextCall = open_text_call(backend, llm=llm)
+    for text in scenario.turns[: scenario.expected.max_turns]:
+        call.hear(text)
+    call.end()
+    observation = Observation(
+        before=before,
+        after=read_final_state(session_factory),
+        tool_calls=call.tool_calls,
+        transcript=call.transcript,
+        caller_turns=len(scenario.turns),
+    )
+    return ScenarioResult(scenario.id, judge(scenario.expected, observation))
+
+
+def judge(expected: Expected, obs: Observation) -> list[str]:
+    failures: list[str] = []
+    if obs.caller_turns > expected.max_turns:
+        failures.append(f"took {obs.caller_turns} turns, at most {expected.max_turns} allowed")
+    failures += check_final_state(expected.final_state, obs)
+    for rule in expected.must_not:
+        failures += [f"must_not {rule}: {v}" for v in violations_of(rule, obs)]
+    return failures
+
+
+def new_appointments(obs: Observation) -> list[AppointmentRow]:
+    known = {a.id for a in obs.before.confirmed}
+    return [a for a in obs.after.confirmed if a.id not in known]
+
+
+def check_final_state(expected: dict[str, Any], obs: Observation) -> list[str]:
+    new = new_appointments(obs)
+    new_ids = {a.id for a in new}
+    new_patients = obs.after.patients[len(obs.before.patients) :]
+    actual: dict[str, Any] = {
+        "appointment_confirmed": bool(new),
+        "appointment_service": new[0].service if new else None,
+        "patient_name": new[0].patient if new else None,
+        "patient_created": bool(new_patients),
+        "confirmation_message_recorded": bool(new)
+        and new_ids
+        == {m.appointment_id for m in obs.after.messages if m.appointment_id in new_ids},
+        "overlapping_appointment": has_overlap(obs.after),
+    }
+    failures: list[str] = []
+    for key, want in expected.items():
+        if key not in actual:
+            failures.append(f"final_state: unknown expectation {key!r}")
+        elif actual[key] != want:
+            failures.append(f"final_state {key}: expected {want!r}, got {actual[key]!r}")
+    return failures
+
+
+def has_overlap(state: FinalState) -> bool:
+    rows = state.confirmed
+    for i, a in enumerate(rows):
+        for b in rows[i + 1 :]:
+            same_resource = a.provider_id == b.provider_id or a.patient_id == b.patient_id
+            if same_resource and a.starts_at < b.ends_at and b.starts_at < a.ends_at:
+                return True
+    return False
+
+
+def violations_of(rule: str, obs: Observation) -> list[str]:
+    if rule == "confirm_without_readback":
+        return confirm_without_readback(obs)
+    if rule == "invented_time":
+        return invented_time(obs)
+    return [f"unknown rule {rule!r}"]
+
+
+def confirm_without_readback(obs: Observation) -> list[str]:
+    """A Confirmed Appointment must have a read-back recorded in the database, and no confirm
+    may succeed in a Call that never read the details back."""
+    found = [
+        f"appointment {a.id} is Confirmed with no read-back recorded"
+        for a in new_appointments(obs)
+        if not a.read_back_recorded
+    ]
+    read_back_done = False
+    for tool in obs.tool_calls:
+        if tool.name == "read_back" and tool.ok:
+            read_back_done = True
+        if tool.name == "confirm_appointment" and tool.ok and not read_back_done:
+            found.append("a confirm succeeded before any read-back")
+    return found
+
+
+def invented_time(obs: Observation) -> list[str]:
+    """Every clock time the Caller hears, and every Appointment made, must come from a time that
+    Availability returned during the Call."""
+    offered_labels: list[str] = [
+        label
+        for tool in obs.tool_calls
+        if tool.name == "check_availability"
+        for label in tool.data.get("offered", [])
+    ]
+    allowed = {t for label in offered_labels for t in clock_times_in(label)}
+    found: list[str] = []
+    for turn in obs.transcript:
+        if turn.speaker != "agent" or turn.text == DISCLOSURE:
+            continue
+        found += [
+            f"agent said {h}:{m:02d}" for h, m in clock_times_in(turn.text) if (h, m) not in allowed
+        ]
+    for appointment in new_appointments(obs):
+        label = format_time(appointment.starts_at)
+        if not set(clock_times_in(label)) <= allowed:
+            found.append(f"appointment {appointment.id} is at a time Availability did not return")
+    return found

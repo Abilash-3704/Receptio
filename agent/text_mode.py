@@ -87,7 +87,9 @@ class TextCall:
                 self._speak(step.text, spoken)
                 return spoken
             result = self._tools.run(step.name, step.args)
-            self.tool_calls.append(ToolCall(step.name, step.args, result.ok, result.refused))
+            self.tool_calls.append(
+                ToolCall(step.name, step.args, result.ok, result.refused, result.data)
+            )
             if result.speak is not None:
                 self._speak(result.speak, spoken)
                 return spoken

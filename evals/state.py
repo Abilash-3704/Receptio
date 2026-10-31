@@ -27,6 +27,9 @@ class AppointmentRow:
     service: str
     provider: str
     starts_at: datetime  # clinic local time
+    ends_at: datetime
+    provider_id: int
+    patient_id: int
     patient: str
     patient_phone: str
     read_back_recorded: bool
@@ -66,6 +69,9 @@ def read_final_state(session_factory: SessionFactory) -> FinalState:
                     service=service.name,
                     provider=provider.name,
                     starts_at=a.starts_at.astimezone(CLINIC_TZ),
+                    ends_at=a.ends_at.astimezone(CLINIC_TZ),
+                    provider_id=a.provider_id,
+                    patient_id=patient.id,
                     patient=patient.full_name,
                     patient_phone=patient.phone,
                     read_back_recorded=a.read_back_at is not None,

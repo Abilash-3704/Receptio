@@ -72,6 +72,7 @@ class ToolCall:
     args: dict[str, Any]
     ok: bool
     refused: bool
+    data: dict[str, Any] = field(default_factory=lambda: {})  # what the tool returned
 
 
 class BackendError(Exception):
