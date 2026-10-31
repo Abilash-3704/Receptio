@@ -13,6 +13,10 @@ activity detector's end of Caller speech, the speech-recognition final, the firs
 - `total_from_speech_end_ms`: VAD end of speech to first agent audio, a stricter reading that
   includes the wait for the VAD to decide the Caller stopped (itself later than the real end).
 
+`llm_steps`, `llm_ms`, `tool_ms`, `tools` (from the core, null when unseen): model round trips
+this turn, wall time in them, wall time in backend tool calls, and the tool names. They show
+whether a slow turn was the model or the tools.
+
 `caller_turn` is the stored transcript position of the Caller turn, null if the core never took it.
 A field is null where a moment was not seen, e.g. a turn cut off before any agent audio.
 """
@@ -37,6 +41,7 @@ class TurnTimings:
         self._asr_final: float | None = None
         self._llm_first: float | None = None
         self._core_turn: int | None = None
+        self._profile: dict[str, object] = {}
         self._pending = False
 
     def on_speech_end(self, t: float) -> None:
@@ -55,6 +60,15 @@ class TurnTimings:
     def on_core_turn(self, caller_turn_seq: int) -> None:
         """The agent core took this Caller turn: its position in the stored transcript."""
         self._core_turn = caller_turn_seq
+
+    def on_core_profile(self, llm_steps: int, llm_ms: int, tool_ms: int, tools: list[str]) -> None:
+        """Where the core's time went this turn (model round trips, tool calls, tool names)."""
+        self._profile = {
+            "llm_steps": llm_steps,
+            "llm_ms": llm_ms,
+            "tool_ms": tool_ms,
+            "tools": tools,
+        }
 
     def on_llm_first_token(self, t: float) -> None:
         if self._pending and self._llm_first is None:
@@ -93,6 +107,10 @@ class TurnTimings:
             "total_ms": None if audio is None else _ms(origin, audio),
             "total_from_speech_end_ms": None if vad is None or audio is None else _ms(vad, audio),
             "interrupted": interrupted,
+            "llm_steps": self._profile.get("llm_steps"),
+            "llm_ms": self._profile.get("llm_ms"),
+            "tool_ms": self._profile.get("tool_ms"),
+            "tools": self._profile.get("tools"),
         }
         self._reset()
         self._emit(json.dumps(record))

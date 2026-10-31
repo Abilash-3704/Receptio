@@ -126,3 +126,33 @@ def test_closing_mid_turn_logs_the_unfinished_turn() -> None:
 
     assert lines[0]["total_ms"] is None
     assert lines[0]["interrupted"] is True
+
+
+def test_the_core_profile_is_logged_with_the_turn() -> None:
+    timings, lines = make()
+    timings.on_speech_end(10.0)
+    timings.on_asr_final(10.1)
+    timings.on_core_profile(llm_steps=3, llm_ms=2400, tool_ms=310, tools=["check_availability"])
+    timings.on_llm_first_token(13.0)
+    timings.on_tts_first_audio(13.15)
+
+    assert lines[0]["llm_steps"] == 3
+    assert lines[0]["llm_ms"] == 2400
+    assert lines[0]["tool_ms"] == 310
+    assert lines[0]["tools"] == ["check_availability"]
+
+
+def test_a_turn_without_a_profile_logs_nulls_and_the_next_turn_does_not_inherit_one() -> None:
+    timings, lines = make()
+    timings.on_speech_end(0.0)
+    timings.on_asr_final(0.1)
+    timings.on_core_profile(llm_steps=1, llm_ms=900, tool_ms=0, tools=[])
+    timings.on_llm_first_token(1.0)
+    timings.on_tts_first_audio(1.1)
+    timings.on_speech_end(5.0)
+    timings.on_asr_final(5.1)
+    timings.on_llm_first_token(5.5)
+    timings.on_tts_first_audio(5.6)
+
+    assert lines[1]["llm_steps"] is None
+    assert lines[1]["tools"] is None

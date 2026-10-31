@@ -44,6 +44,13 @@ class VoiceTurnDriver:
         # audio keeps flowing and the Caller can still barge in.
         spoken = await asyncio.to_thread(self._call.hear, caller_text)
         self._timings.on_core_turn(self._call.caller_turn_seq)
+        profile = self._call.last_turn_profile
+        self._timings.on_core_profile(
+            llm_steps=profile.llm_steps,
+            llm_ms=profile.llm_ms,
+            tool_ms=profile.tool_ms,
+            tools=list(profile.tools or []),
+        )
         first = True
         for utterance in spoken:
             for sentence in split_sentences(utterance):

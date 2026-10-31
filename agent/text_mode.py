@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -75,7 +76,19 @@ DISCLOSURE = (
     "and this call may be recorded. How can I help you today?"
 )
 
+
 # Most tool steps the LLM gets in one turn before the agent gives up on it.
+@dataclass
+class TurnProfile:
+    """Where one Caller turn's time went: model round trips, tool calls, and which tools.
+    Names only, never arguments, so it is safe to log."""
+
+    llm_steps: int = 0
+    llm_ms: int = 0
+    tool_ms: int = 0
+    tools: list[str] | None = None
+
+
 MAX_STEPS_PER_TURN = 8
 STUCK = "I'm sorry, I'm having trouble with that. Could you say it again?"
 # Tools whose unanswered request leaves a booking or cancellation in an unknown state.
@@ -134,6 +147,7 @@ class TextCall:
         self._llm = llm
         self.transcript: list[Turn] = []
         self.tool_calls: list[ToolCall] = []
+        self.last_turn_profile = TurnProfile(tools=[])
         self._state = CallState()
         self._tools = ToolBox(backend, call_id, self._state, clock)
         self._messages: list[Message] = []
@@ -205,6 +219,7 @@ class TextCall:
         """The Caller says something. Returns what the Caller hears in reply."""
         assert self._llm is not None, "this Call has no LLM"
         with self._lock:
+            self.last_turn_profile = TurnProfile(tools=[])
             if self._state.limit_reached or (
                 self._limits is not None and self._elapsed() >= self._limits.max_seconds
             ):
@@ -288,7 +303,10 @@ class TextCall:
                 return spoken
             call_text = json.dumps({"tool": step.name, "args": step.args})
             self._messages.append(Message("tool_call", call_text))
+            tool_started = time.monotonic()
             result = self._run_tool(step, spoken)
+            self.last_turn_profile.tool_ms += round((time.monotonic() - tool_started) * 1000)
+            (self.last_turn_profile.tools or []).append(step.name)
             self.tool_calls.append(
                 ToolCall(step.name, step.args, result.ok, result.refused, result.data)
             )
@@ -330,11 +348,15 @@ class TextCall:
         Caller's answer to that offer are all code, so they work with the LLM down."""
         assert self._llm is not None
         for attempt in (1, 2):
+            started = time.monotonic()
             try:
                 step = self._llm.next_step(
                     LLMTurn(self._state.summary(), list(self._messages), TOOL_SPECS)
                 )
+                self.last_turn_profile.llm_steps += 1
+                self.last_turn_profile.llm_ms += round((time.monotonic() - started) * 1000)
             except LLMError:
+                self.last_turn_profile.llm_ms += round((time.monotonic() - started) * 1000)
                 logger.warning("call %s: the LLM failed (attempt %d)", self.call_id, attempt)
                 continue
             self._trace_usage()

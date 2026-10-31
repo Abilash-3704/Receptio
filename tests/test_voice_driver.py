@@ -89,3 +89,36 @@ def test_the_timing_line_names_the_transcript_turn_it_belongs_to(backend: httpx.
     timings.on_tts_first_audio(5.0)
 
     assert lines[0]["caller_turn"] == 2  # the disclosure is turn 1, the Caller's "Hi" turn 2
+
+
+def test_driver_passes_the_core_turn_profile_to_the_timings() -> None:
+    import asyncio
+    from typing import Any
+
+    from agent.text_mode import TurnProfile
+    from voice.driver import VoiceTurnDriver
+
+    seen: dict[str, Any] = {}
+
+    class Timings:
+        def on_core_turn(self, seq: int) -> None: ...
+        def on_llm_first_token(self, t: float) -> None: ...
+        def on_core_profile(self, **kw: Any) -> None:
+            seen.update(kw)
+
+    class Call:
+        call_id = 1
+        caller_turn_seq = 2
+        last_turn_profile = TurnProfile(llm_steps=2, llm_ms=1500, tool_ms=200, tools=["read_back"])
+
+        def hear(self, text: str) -> list[str]:
+            return ["Hello there."]
+
+    async def run() -> None:
+        driver = VoiceTurnDriver(Call(), Timings())  # type: ignore[arg-type]
+        async for _ in driver.reply("hi"):
+            pass
+
+    asyncio.run(run())
+
+    assert seen == {"llm_steps": 2, "llm_ms": 1500, "tool_ms": 200, "tools": ["read_back"]}
