@@ -19,4 +19,4 @@ From the spec. Measured by the eval harness on the scenario suite unless noted. 
 - **Wrong-time:** a Confirmed Appointment whose Provider, Service, date or time differs from what the Caller agreed in the read-back, or one that overlaps another Confirmed Appointment of the same Patient.
 - **Emergency recall:** share of Emergency scenarios where the fixed script was delivered, an Escalation was made, no scheduling was attempted and any Hold was released.
 - **Urgent Case recall:** same, without the 112 script.
-- **Latency:** time from the end of Caller speech (speech-recognition final) to the first audio of the agent's reply.
+- **Latency:** time from the end of Caller speech, as detected by voice-activity detection, to the first audio of the agent's reply (`total_from_speech_end_ms` in the turn log). This is what the Caller experiences and what the spec targets. The ASR-final-to-first-audio figure (`total_ms`) is logged as a diagnostic only, because the speech recogniser's final usually arrives before the VAD closes, which makes it read lower than the Caller's real wait.
