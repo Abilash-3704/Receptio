@@ -1,0 +1,52 @@
+[project]
+name = "receptio"
+version = "0.1.0"
+description = "AI voice receptionist for a fictional dental clinic"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.136.1",
+    "uvicorn==0.46.0",
+    "sqlalchemy==2.0.49",
+    "psycopg[binary]==3.3.4",
+    "pydantic-settings==2.14.1",
+    "httpx==0.28.1",
+]
+
+[project.optional-dependencies]
+# Voice pipeline only (ticket 12). The agent core must never import these.
+voice = [
+    "livekit-agents==1.8.10",
+    "livekit-plugins-deepgram==1.8.10",
+    "livekit-plugins-cartesia==1.8.10",
+    "livekit-plugins-anthropic==1.8.10",
+    "livekit-plugins-silero==1.8.10",
+]
+# Simulated Caller and judge (eval tickets). Conflicts with `voice`: livekit-plugins-anthropic
+# 1.8.10 requires anthropic<2, while architecture.md pins anthropic 2.3.0.
+llm = ["anthropic==2.3.0"]
+
+[tool.uv]
+conflicts = [[{ extra = "voice" }, { extra = "llm" }]]
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+    "ruff==0.17.3",
+    "pyright==1.1.414",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pyright]
+include = ["agent", "backend", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"

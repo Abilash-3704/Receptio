@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-receptio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-receptio}
+      POSTGRES_DB: ${POSTGRES_DB:-receptio}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-receptio}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    build: .
+    command: ["uvicorn", "backend.app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-receptio}:${POSTGRES_PASSWORD:-receptio}@db:5432/${POSTGRES_DB:-receptio}
+      DATABASE_CONNECT_TIMEOUT_SECONDS: ${DATABASE_CONNECT_TIMEOUT_SECONDS:-5}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  agent:
+    build: .
+    command: ["python", "-m", "agent.main"]
+    environment:
+      BACKEND_URL: http://backend:8000
+      BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
+    ports:
+      - "${AGENT_PORT:-8001}:8001"
+    depends_on:
+      - backend
+
+  # TODO (ticket 12): self-hosted LiveKit server (livekit/livekit-server) for the voice
+  # pipeline. Not needed for text-mode Calls, so it is deliberately absent from the tracer.
+
+volumes:
+  db-data:

@@ -2,7 +2,28 @@
 
 An AI voice receptionist for a fictional dental clinic in Bengaluru. Callers reach it through a web client, never a real phone number. See `GLOSSARY.md` for vocabulary, `docs/architecture.md` for decisions and `docs/metrics.md` for targets.
 
-> Status: Phase 0. Skeleton and quickstart arrive in later tickets.
+> Status: skeleton and a tracer text-mode Call. Voice pipeline arrives in later tickets.
+
+## Quickstart
+
+```
+cp .env.example .env
+docker compose up --build            # db, clinic backend (:8000), agent (:8001)
+curl -X POST localhost:8001/text-calls/tracer   # opens a text-mode Call, shows the disclosure, ends it
+```
+
+If host ports 8000 or 8001 are taken, set `BACKEND_PORT` and `AGENT_PORT`. Text mode needs no provider keys.
+
+Development (needs [uv](https://docs.astral.sh/uv/); Python 3.12 is installed by uv):
+
+```
+uv sync
+uv run ruff format --check agent backend tests && uv run ruff check agent backend tests
+uv run pyright
+uv run pytest
+```
+
+The voice and LLM SDKs are optional extras (`--extra voice`, `--extra llm`, mutually exclusive because `livekit-plugins-anthropic` 1.8.10 needs `anthropic<2`). LiveKit is not in Compose yet (TODO, ticket 12).
 
 ## Provider spend caps checklist
 
