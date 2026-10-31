@@ -23,6 +23,15 @@ uv run pyright
 uv run pytest
 ```
 
+By default the backend tests run on in-memory SQLite. Concurrency tests need a real Postgres and skip without one; the same variable runs the whole backend suite through the Alembic migrations on Postgres:
+
+```
+docker run -d --name receptio-test-pg -e POSTGRES_USER=receptio -e POSTGRES_PASSWORD=receptio -e POSTGRES_DB=receptio -p 55432:5432 postgres:17-alpine
+TEST_DATABASE_URL=postgresql+psycopg://receptio:receptio@localhost:55432/receptio uv run pytest
+```
+
+The test database's `public` schema is dropped and rebuilt for every test, so point it at a throwaway database only. The backend applies Alembic migrations (`backend/migrations`) on startup for Postgres.
+
 The voice and LLM SDKs are optional extras (`--extra voice`, `--extra llm`, mutually exclusive because `livekit-plugins-anthropic` 1.8.10 needs `anthropic<2`). LiveKit is not in Compose yet (TODO, ticket 12).
 
 ## Provider spend caps checklist

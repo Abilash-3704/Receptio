@@ -3,22 +3,26 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from backend.app import booking
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
 from backend.app.config import BackendSettings
 from backend.app.db import (
     AppointmentRecord,
-    Base,
     CallRecord,
+    Patient,
     Provider,
     Service,
     create_db_engine,
 )
-from backend.app.scheduling import HOLD_DURATION, find_availability
+from backend.app.idempotency import run_idempotent
+from backend.app.migrate import upgrade
+from backend.app.scheduling import find_availability
 from backend.app.seed import seed
 
 # Longest range one Availability query may cover.
@@ -56,6 +60,31 @@ class HoldOut(BaseModel):
     start: datetime
     end: datetime
     expires_at: datetime
+    read_back_recorded: bool
+    replaces_id: int | None
+
+
+class ConfirmIn(BaseModel):
+    patient_name: str
+    patient_phone: str
+
+
+class RescheduleIn(BaseModel):
+    provider_id: int
+    start: datetime
+    service_id: int | None = None  # defaults to the original Appointment's Service
+
+
+class AppointmentOut(BaseModel):
+    id: int
+    status: str
+    service_id: int
+    provider_id: int
+    start: datetime
+    end: datetime
+    patient_id: int | None
+    patient_name: str | None
+    replaces_id: int | None
 
 
 def aware(value: datetime) -> datetime:
@@ -92,6 +121,7 @@ def get_session(request: Request) -> Iterator[Session]:
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
+IdempotencyKey = Annotated[str, Header(min_length=1, max_length=128)]
 
 
 def create_app(settings: BackendSettings | None = None, clock: Clock = system_clock) -> FastAPI:
@@ -101,8 +131,7 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
-        # TODO: replace create_all with Alembic migrations (deferred in ticket 03).
-        Base.metadata.create_all(engine)
+        upgrade(engine)
         with session_factory() as session:
             seed(session, clock())
         yield
@@ -163,33 +192,122 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         slots = find_availability(session, service, provider_id, start, end, clock())
         return [SlotOut(provider_id=s.provider_id, start=s.start, end=s.end) for s in slots]
 
-    @app.post("/holds", status_code=201)
-    def place_hold(body: HoldIn, session: SessionDep) -> HoldOut:  # pyright: ignore[reportUnusedFunction]
-        service = get_service(session, body.service_id)
-        get_provider(session, body.provider_id)
-        start = aware(body.start)
-        end = start + timedelta(minutes=service.duration_minutes)
-        now = clock()
-        open_times = find_availability(session, service, body.provider_id, start, end, now)
-        if not any(s.start == start for s in open_times):
-            raise HTTPException(status_code=409, detail="that time is not available")
-        hold = AppointmentRecord(
-            provider_id=body.provider_id,
-            service_id=service.id,
-            starts_at=start,
-            ends_at=end,
-            status="held",
-            expires_at=now + HOLD_DURATION,
-        )
-        session.add(hold)
-        session.commit()
+    def hold_out(hold: AppointmentRecord) -> HoldOut:
+        assert hold.expires_at is not None
         return HoldOut(
             id=hold.id,
-            service_id=service.id,
+            service_id=hold.service_id,
             provider_id=hold.provider_id,
-            start=start,
-            end=end,
-            expires_at=now + HOLD_DURATION,
+            start=hold.starts_at,
+            end=hold.ends_at,
+            expires_at=hold.expires_at,
+            read_back_recorded=hold.read_back_at is not None,
+            replaces_id=hold.replaces_id,
+        )
+
+    def appointment_out(session: Session, record: AppointmentRecord) -> AppointmentOut:
+        patient = None if record.patient_id is None else session.get(Patient, record.patient_id)
+        return AppointmentOut(
+            id=record.id,
+            status=record.status,
+            service_id=record.service_id,
+            provider_id=record.provider_id,
+            start=record.starts_at,
+            end=record.ends_at,
+            patient_id=record.patient_id,
+            patient_name=None if patient is None else patient.full_name,
+            replaces_id=record.replaces_id,
+        )
+
+    @app.post("/holds", status_code=201, response_model=None)
+    def place_hold(  # pyright: ignore[reportUnusedFunction]
+        body: HoldIn, session: SessionDep, idempotency_key: IdempotencyKey
+    ) -> JSONResponse:
+        def work() -> tuple[int, BaseModel]:
+            service = get_service(session, body.service_id)
+            get_provider(session, body.provider_id)
+            hold = booking.place_hold(
+                session, service, body.provider_id, aware(body.start), clock()
+            )
+            return 201, hold_out(hold)
+
+        return run_idempotent(
+            session, idempotency_key, "POST /holds", body.model_dump(mode="json"), work
+        )
+
+    @app.post("/holds/{hold_id}/read-back", response_model=None)
+    def record_read_back(  # pyright: ignore[reportUnusedFunction]
+        hold_id: int, session: SessionDep, idempotency_key: IdempotencyKey
+    ) -> JSONResponse:
+        def work() -> tuple[int, BaseModel]:
+            return 200, hold_out(booking.record_read_back(session, hold_id, clock()))
+
+        return run_idempotent(
+            session, idempotency_key, f"POST /holds/{hold_id}/read-back", {}, work
+        )
+
+    @app.post("/holds/{hold_id}/confirm", status_code=201, response_model=None)
+    def confirm_hold(  # pyright: ignore[reportUnusedFunction]
+        hold_id: int,
+        session: SessionDep,
+        idempotency_key: IdempotencyKey,
+        body: ConfirmIn | None = None,
+    ) -> JSONResponse:
+        def work() -> tuple[int, BaseModel]:
+            patient = None if body is None else (body.patient_name, body.patient_phone)
+            appointment = booking.confirm(session, hold_id, patient, clock())
+            return 201, appointment_out(session, appointment)
+
+        payload = {} if body is None else body.model_dump()
+        return run_idempotent(
+            session, idempotency_key, f"POST /holds/{hold_id}/confirm", payload, work
+        )
+
+    @app.get("/appointments/{appointment_id}")
+    def read_appointment(  # pyright: ignore[reportUnusedFunction]
+        appointment_id: int, session: SessionDep
+    ) -> AppointmentOut:
+        record = session.get(AppointmentRecord, appointment_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="appointment not found")
+        return appointment_out(session, record)
+
+    @app.post("/appointments/{appointment_id}/cancel", response_model=None)
+    def cancel_appointment(  # pyright: ignore[reportUnusedFunction]
+        appointment_id: int, session: SessionDep, idempotency_key: IdempotencyKey
+    ) -> JSONResponse:
+        def work() -> tuple[int, BaseModel]:
+            return 200, appointment_out(session, booking.cancel(session, appointment_id))
+
+        return run_idempotent(
+            session, idempotency_key, f"POST /appointments/{appointment_id}/cancel", {}, work
+        )
+
+    @app.post("/appointments/{appointment_id}/reschedule", status_code=201, response_model=None)
+    def reschedule_appointment(  # pyright: ignore[reportUnusedFunction]
+        appointment_id: int,
+        body: RescheduleIn,
+        session: SessionDep,
+        idempotency_key: IdempotencyKey,
+    ) -> JSONResponse:
+        """Places a Hold on the new time. Nothing about the Appointment changes until that Hold
+        is read back and confirmed, which cancels this Appointment in the same transaction."""
+
+        def work() -> tuple[int, BaseModel]:
+            original = booking.start_reschedule(session, appointment_id)
+            service = get_service(session, body.service_id or original.service_id)
+            get_provider(session, body.provider_id)
+            hold = booking.place_hold(
+                session, service, body.provider_id, aware(body.start), clock(), replaces=original
+            )
+            return 201, hold_out(hold)
+
+        return run_idempotent(
+            session,
+            idempotency_key,
+            f"POST /appointments/{appointment_id}/reschedule",
+            body.model_dump(mode="json"),
+            work,
         )
 
     @app.post("/calls", status_code=201)

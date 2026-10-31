@@ -1,93 +1,18 @@
 """Clinic backend API, deterministic seam: Availability and Holds. No LLM, no sleeping."""
 
-from collections.abc import Iterator
 from datetime import datetime, timedelta
-from typing import Any
-from zoneinfo import ZoneInfo
 
 import httpx
-import pytest
-from fastapi.testclient import TestClient
 
-from backend.app.config import BackendSettings
-from backend.app.main import create_app
-
-IST = ZoneInfo("Asia/Kolkata")
-Json = dict[str, Any]
-
-# Monday 2 November 2026, 08:00 in Asia/Kolkata. The seeded existing Appointment is made
-# relative to this moment (see backend/app/seed.py).
-START_OF_TEST = datetime(2026, 11, 2, 8, 0, tzinfo=IST)
-
-
-class FakeClock:
-    def __init__(self, now: datetime) -> None:
-        self.now = now
-
-    def __call__(self) -> datetime:
-        return self.now
-
-    def advance(self, delta: timedelta) -> None:
-        self.now += delta
-
-
-@pytest.fixture
-def clock() -> FakeClock:
-    return FakeClock(START_OF_TEST)
-
-
-@pytest.fixture
-def backend(clock: FakeClock) -> Iterator[httpx.Client]:
-    settings = BackendSettings(database_url="sqlite+pysqlite:///:memory:")
-    with TestClient(create_app(settings, clock=clock), base_url="http://backend") as client:
-        yield client
-
-
-def provider_id(backend: httpx.Client, name: str) -> int:
-    providers: list[Json] = backend.get("/providers").json()
-    return next(p["id"] for p in providers if p["name"] == name)
-
-
-def service_id(backend: httpx.Client, name: str) -> int:
-    services: list[Json] = backend.get("/services").json()
-    return next(s["id"] for s in services if s["name"] == name)
-
-
-def availability(
-    backend: httpx.Client,
-    service: str,
-    day: str,
-    provider: str | None = None,
-    end_day: str | None = None,
-) -> list[Json]:
-    params: dict[str, Any] = {
-        "service_id": service_id(backend, service),
-        "start": f"{day}T00:00:00+05:30",
-        "end": f"{end_day or day}T23:59:00+05:30",
-    }
-    if provider is not None:
-        params["provider_id"] = provider_id(backend, provider)
-    response = backend.get("/availability", params=params)
-    assert response.status_code == 200
-    return response.json()
-
-
-def local(slots: list[Json]) -> list[str]:
-    """Slot start times as local 'YYYY-MM-DD HH:MM' strings, for readable assertions."""
-    return [
-        datetime.fromisoformat(s["start"]).astimezone(IST).strftime("%Y-%m-%d %H:%M") for s in slots
-    ]
-
-
-def place_hold(backend: httpx.Client, service: str, provider: str, start: str) -> httpx.Response:
-    return backend.post(
-        "/holds",
-        json={
-            "service_id": service_id(backend, service),
-            "provider_id": provider_id(backend, provider),
-            "start": f"{start.replace(' ', 'T')}:00+05:30",
-        },
-    )
+from tests.support import (
+    IST,
+    FakeClock,
+    availability,
+    local,
+    place_hold,
+    provider_id,
+    service_id,
+)
 
 
 def test_availability_is_fitted_to_service_duration_within_working_hours(

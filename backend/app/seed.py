@@ -9,6 +9,7 @@ from backend.app.clock import CLINIC_TZ
 from backend.app.db import (
     AppointmentRecord,
     ClinicHoursRow,
+    Patient,
     Provider,
     ProviderService,
     Service,
@@ -68,6 +69,9 @@ def seed(session: Session, now: datetime) -> None:
     while day.weekday() == 6:
         day += timedelta(days=1)
     starts_at = datetime.combine(day.date(), time(10), tzinfo=CLINIC_TZ)
+    seeded = Patient(full_name="Seeded Patient", name_key="seeded patient", phone="+910000000000")
+    session.add(seeded)
+    session.flush()
     session.add(
         AppointmentRecord(
             provider_id=providers["Dr. Anita Rao"].id,
@@ -75,7 +79,7 @@ def seed(session: Session, now: datetime) -> None:
             starts_at=starts_at,
             ends_at=starts_at + timedelta(minutes=SERVICES["Filling"]),
             status="confirmed",
-            patient_name="Seeded Patient",
+            patient_id=seeded.id,
         )
     )
     session.commit()
