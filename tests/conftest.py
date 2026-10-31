@@ -11,11 +11,18 @@ from sqlalchemy import create_engine, text
 from backend.app.config import BackendSettings
 from backend.app.main import create_app
 from backend.app.trace import load_trace
-from tests.support import START_OF_TEST, FakeClock
+from tests.support import SERVICE_TOKEN, STAFF_PASSWORD, START_OF_TEST, FakeClock
 
 # Set to a Postgres URL to run the whole backend suite (and the concurrency tests) against a
 # real Postgres. The schema in that database is dropped and rebuilt by migrations per test.
 POSTGRES_URL = os.environ.get("TEST_DATABASE_URL")
+
+
+@pytest.fixture(autouse=True)
+def backend_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every BackendSettings() a test builds finds the test secrets in its environment."""
+    monkeypatch.setenv("BACKEND_SERVICE_TOKEN", SERVICE_TOKEN)
+    monkeypatch.setenv("DASHBOARD_PASSWORD", STAFF_PASSWORD)
 
 
 @pytest.fixture
@@ -38,13 +45,24 @@ def backend_factory(clock: FakeClock) -> Iterator[BackendFactory]:
                 conn.execute(text("DROP SCHEMA public CASCADE"))
                 conn.execute(text("CREATE SCHEMA public"))
             engine.dispose()
-        merged: dict[str, Any] = {"demo_controls_enabled": True, **overrides}
+        merged: dict[str, Any] = {
+            "demo_controls_enabled": True,
+            "backend_service_token": SERVICE_TOKEN,
+            "dashboard_password": STAFF_PASSWORD,
+            **overrides,
+        }
         settings = BackendSettings(
             database_url=POSTGRES_URL or "sqlite+pysqlite:///:memory:", **merged
         )
         client = stack.enter_context(
             TestClient(create_app(settings, clock=clock), base_url="http://backend")
         )
+        # The default client is both the agent (service token) and staff (Basic), so one client
+        # can drive a whole scenario. tests/test_auth.py uses credential-free clients.
+        if merged["backend_service_token"] is not None:
+            client.headers["X-Service-Token"] = merged["backend_service_token"]
+        if merged["dashboard_password"] is not None:
+            client.auth = ("staff", merged["dashboard_password"])
         # starlette's TestClient subclasses httpx2.Client in this dependency set, not
         # httpx.Client. It is call-compatible, so the agent code (typed on httpx) runs unchanged.
         return cast(httpx.Client, client)

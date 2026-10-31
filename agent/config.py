@@ -11,6 +11,9 @@ class AgentSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     backend_url: str = "http://localhost:8000"
+    # Shared secret the backend checks on every agent-facing route (BACKEND_SERVICE_TOKEN, the
+    # same variable the backend reads). Environment only; no default.
+    backend_service_token: SecretStr | None = None
     # Applied to every request the agent makes to the clinic backend.
     backend_timeout_seconds: float = 5.0
 

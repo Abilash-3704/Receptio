@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app import booking, capacity, clinic_hours, knowledge
+from backend.app import booking, capacity, clinic_hours, dashboard, knowledge
+from backend.app.auth import authenticate
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
 from backend.app.config import BackendSettings
 from backend.app.cost import Prices, call_cost
@@ -287,7 +288,19 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     prices = Prices.from_settings(settings)
 
-    app = FastAPI(title="Receptio clinic backend", lifespan=lifespan)
+    # No /docs or /openapi.json: they would list every route to anyone. Every route is checked by
+    # `authenticate` (backend/app/auth.py) unless that module lists it as public.
+    app = FastAPI(
+        title="Receptio clinic backend",
+        lifespan=lifespan,
+        dependencies=[Depends(authenticate)],
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    app.state.settings = settings
+    app.include_router(dashboard.router)
+    app.middleware("http")(dashboard.protect_responses)
     app.state.session_factory = session_factory
     app.state.prices = prices
 

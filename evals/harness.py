@@ -1,5 +1,6 @@
 """Running the whole suite: one fresh backend per scenario, scripted or with a simulated Caller."""
 
+import secrets
 from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from agent.llm import LLM
 from backend.app.config import BackendSettings
@@ -43,12 +45,19 @@ FreshBackend = Callable[[], AbstractContextManager[tuple[httpx.Client, SessionFa
 @contextmanager
 def sqlite_backend() -> Generator[tuple[httpx.Client, SessionFactory, FakeClock]]:
     """A new backend on in-memory SQLite at the fixed start, one per scenario."""
+    # In-process throwaway credentials: this backend lives and dies inside one scenario.
+    service_token, staff_password = secrets.token_hex(16), secrets.token_hex(16)
     settings = BackendSettings(
-        database_url="sqlite+pysqlite:///:memory:", demo_controls_enabled=True
+        database_url="sqlite+pysqlite:///:memory:",
+        demo_controls_enabled=True,
+        backend_service_token=SecretStr(service_token),
+        dashboard_password=SecretStr(staff_password),
     )
     clock = FakeClock(START)
     app = create_app(settings, clock=clock)
     with TestClient(app, base_url="http://backend") as client:
+        client.headers["X-Service-Token"] = service_token
+        client.auth = ("staff", staff_password)
         yield cast(httpx.Client, client), app.state.session_factory, clock
 
 
