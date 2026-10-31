@@ -8,14 +8,25 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
+from agent.config import AgentSettings
 from backend.app.config import BackendSettings
 from backend.app.main import create_app
 from backend.app.trace import load_trace
+from evals.config import EvalSettings
 from tests.support import SERVICE_TOKEN, STAFF_PASSWORD, START_OF_TEST, FakeClock
+from voice.config import VoiceSettings
 
 # Set to a Postgres URL to run the whole backend suite (and the concurrency tests) against a
 # real Postgres. The schema in that database is dropped and rebuilt by migrations per test.
 POSTGRES_URL = os.environ.get("TEST_DATABASE_URL")
+
+
+@pytest.fixture(autouse=True)
+def no_dotenv_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No settings class reads a developer's local `.env`: every test starts from the defaults
+    plus what it sets itself, so a value in `.env` can never change a result."""
+    for settings_class in (BackendSettings, AgentSettings, VoiceSettings, EvalSettings):
+        monkeypatch.setitem(settings_class.model_config, "env_file", None)
 
 
 @pytest.fixture(autouse=True)
