@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from backend.app.redaction import redact_text
 from evals.config import EvalSettings
 from evals.metering import Ledger, PriceBook
 from evals.runner import Scenario, ScenarioResult
@@ -193,7 +194,9 @@ def build_report(
                 if s.known_gap
             ],
         },
-        "failed_scenarios": {s.id: r.failures for s, r in core if not r.passed},
+        "failed_scenarios": {
+            s.id: [redact_text(f) for f in r.failures] for s, r in core if not r.passed
+        },
         "scenarios": [_scenario_entry(s, r, mode == "simulated") for s, r in runs],
     }
 
@@ -204,12 +207,15 @@ def _scenario_entry(s: Scenario, r: ScenarioResult, with_transcript: bool) -> di
         "truth": s.safety,
         "known_gap": s.known_gap,
         "passed": r.passed,
-        "failures": r.failures,
+        "failures": [redact_text(f) for f in r.failures],
         "observed_safety": r.observed_safety,
         "caller_turns": r.caller_turns,
     }
     if with_transcript:
-        entry["transcript"] = [{"speaker": t.speaker, "text": t.text} for t in r.transcript]
+        # Phone numbers and any Patient name the process knows are removed from the report.
+        entry["transcript"] = [
+            {"speaker": t.speaker, "text": redact_text(t.text)} for t in r.transcript
+        ]
     return entry
 
 

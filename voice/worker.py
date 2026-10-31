@@ -44,6 +44,7 @@ from agent.backend_client import make_backend_client
 from agent.call_limits import CallLimits
 from agent.config import AgentSettings
 from agent.text_mode import DISCLOSURE, open_text_call
+from backend.app.redaction import install_log_redaction
 from voice.admission import settle_admission
 from voice.config import VoiceSettings
 from voice.driver import VoiceTurnDriver, watch_call_limits
@@ -52,6 +53,7 @@ from voice.resilience import AsrDropoutWatch, VoiceResilience
 from voice.timing import TurnTimings
 
 logger = logging.getLogger("receptio.voice")
+install_log_redaction()  # names and phone numbers never reach this process's logs
 
 
 def last_user_text(chat_ctx: llm.ChatContext) -> str:

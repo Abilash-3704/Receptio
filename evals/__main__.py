@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.config import AgentSettings
+from backend.app.redaction import install_log_redaction
 from evals.baseline import baseline_from, compare_to_baseline
 from evals.config import EvalSettings
 from evals.harness import SCENARIOS, Suite, load_scenarios, run_suite
@@ -69,6 +70,7 @@ def main(
     client_factory: Callable[[str], Any] = default_client,
     out: Callable[[str], None] = print,
 ) -> int:
+    install_log_redaction()
     args = parse(argv)
     settings, agent = EvalSettings(), AgentSettings()
     scenarios = load_scenarios(args.scenarios, args.only.split(",") if args.only else None)

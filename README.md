@@ -7,7 +7,7 @@ An AI voice receptionist for a fictional dental clinic in Bengaluru. Callers rea
 ## Quickstart
 
 ```
-cp .env.example .env
+cp .env.example .env                 # then set BACKEND_SERVICE_TOKEN and DASHBOARD_PASSWORD (below)
 docker compose up --build            # db, clinic backend (:8000), agent (:8001)
 curl -X POST localhost:8001/text-calls/tracer   # opens a text-mode Call, shows the disclosure, ends it
 ```
@@ -136,7 +136,7 @@ Checked without a human (what was measured is in `docs/latency-budget.md`): the 
 
 1. `docker compose up --build`, open `http://localhost:8002` in Chrome or Firefox, press Start call, allow the microphone.
 2. The first thing you hear is the AI and recording disclosure, before you say anything. Do not talk over it (it is not interruptible).
-3. Ask "What are your opening hours?" and confirm a spoken answer. Then book a Cleaning end to end by voice and check the Appointment (`curl localhost:8000/calls/<id>`).
+3. Ask "What are your opening hours?" and confirm a spoken answer. Then book a Cleaning end to end by voice and check the Appointment (`curl -u "staff:$DASHBOARD_PASSWORD" localhost:8000/calls/<id>`, or open the dashboard).
 4. Barge-in: while the agent is mid-sentence (ask for something long, such as the list of Services), start talking. The agent must go silent at once, not finish the sentence. Note the delay you feel.
 5. Say an Emergency sentence ("my father collapsed and is not breathing") and confirm the fixed 112 script, spoken without the LLM pause.
 6. Press End call; confirm the Call is `ended` in the backend.
@@ -158,7 +158,25 @@ Cost per Call, and how much of it is real:
 
 Prices are configuration (`LLM_PRICES_PER_MTOK`, `DEEPGRAM_USD_PER_MINUTE`, `CARTESIA_USD_PER_1K_CHARACTERS`). **The defaults are placeholders, not provider prices**; the stored cost carries `placeholder_prices: true` until all are set. A model without a price is stored with its tokens and `usd: null` rather than a guess. Text Calls have no audio, so no Deepgram or Cartesia cost. Nothing here was checked against a real provider invoice or a real voice Call.
 
-Personal data: transcript text and tool arguments (names, phone numbers) are stored in full in these tables, which is the database record. Log lines carry only Call ids, counts and timings, never what was said. Redaction in logs and protection of the endpoints that return transcripts (`GET /calls/{id}`, unauthenticated, and the new write-only trace endpoints) is ticket 18.
+Personal data: transcript text and tool arguments (names, phone numbers) are stored in full in these tables, which is the database record. Protection of the endpoints that return it, the dashboard and log redaction are in the next section.
+
+## Dashboard, authentication and PII (ticket 18)
+
+**Dashboard.** `http://localhost:8000/dashboard` (log in as `staff` with `DASHBOARD_PASSWORD`; the browser prompts). It lists every Call (newest first, paged), links each to a trace viewer (transcript, tool calls with arguments and results, outcome, latency per turn, cost per turn and per Call), and shows summary metrics: Calls per day (clinic day, Asia/Kolkata), completion rate (completed over ended Calls), p95 latency, cost per minute and Escalation reasons. JSON for the same data: `/dashboard/api/metrics`, `/dashboard/api/calls`, `/dashboard/api/calls/{id}` (the last is `backend.app.trace.load_trace`, the single read model). Latency is `total_from_speech_end_ms` (nearest-rank p95); cost shows a "placeholder price" flag wherever a price was never configured, and counts Calls whose cost left out an unpriced component. The metric code is `backend/app/metrics.py`, unit-tested on seeded rows. Server-rendered HTML, no JavaScript; everything from a Caller is HTML-escaped, the pages carry `Content-Security-Policy: default-src 'none'` and nothing is cacheable.
+
+**Who may call what** (`backend/app/auth.py`, default deny). Two secrets, environment only, never committed, no defaults; a secret that is unset, empty or shorter than 16 characters counts as not configured and the routes it guards answer 503 (fail closed). Both are compared in constant time (`hmac.compare_digest`).
+
+| Caller | Credential | Routes |
+|---|---|---|
+| Agent and voice worker (internal) | `X-Service-Token: $BACKEND_SERVICE_TOKEN` | open a Call and write its turns, tool calls, LLM calls, timings, Escalations, end; the clinic tools (availability, holds, appointments, FAQ) |
+| Clinic staff | HTTP Basic `staff:$DASHBOARD_PASSWORD` | the dashboard and its API, `GET /calls/{id}` (transcript), `GET /escalations`, `GET /confirmation-messages`, `PUT /demo/clinic-override`, and any route not listed otherwise |
+| Anyone | none | `GET /health`; `POST /capacity/admissions` and `.../settle` (the Caller-facing cost guard, as ticket 13 built it) |
+
+No credentials: 401. Credentials of the other kind: 403 (the agent can write a transcript but never read one back; staff cannot call the agent routes). A route added without a decision is a staff route. `tests/test_auth.py` walks every route of the app and fails if one answers without credentials. `/docs` and `/openapi.json` are switched off. Residual risks: the capacity routes are open to anything that can reach the backend (it could use up the daily caps), so keep the backend port off the public internet and behind your reverse proxy; one shared service token means a leaked token is leaked for every agent process (rotate by changing the env var and restarting); HTTP Basic over plain HTTP sends the password in the clear, so serve the dashboard over HTTPS; there is no rate limit or lockout on password guesses, so use a long random password.
+
+**Logs.** First-party code logs Call ids, counts and timings, never what was said. As a safety net, `backend/app/redaction.py` wraps the logging record factory, so every record of a process (ours, uvicorn, httpx, LiveKit; message, arguments and tracebacks) has phone numbers (7 to 15 digits) and known Patient names replaced by `[phone]` and `[name]`. The backend and the agent tell it every name they validate or are given; the voice worker, web service, agent service and eval command install it at start. It is also applied to transcripts in eval reports. Tested by capturing log output for a Call with a name and a phone number (`tests/test_log_redaction.py`). **Not covered:** the database, the trace and the dashboard keep everything in full on purpose; a name the process was never told is not recognised in free text, a number spoken as words is not a digit run, and the backend and agent keep separate name lists; `print()` and direct file writes bypass logging (the voice worker's JSONL turn log holds numbers only); redaction was exercised through the text-mode agent and the backend, not through a live LiveKit worker.
+
+**What a human still has to check.** Nobody has looked at the dashboard in a browser: the tests parse the HTML and read its elements, so layout, readability and the browser's Basic-auth prompt are unseen.
 
 ## Provider spend caps checklist
 

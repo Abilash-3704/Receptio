@@ -10,12 +10,14 @@ from fastapi.testclient import TestClient
 from agent.text_mode import open_text_call
 from backend.app.config import BackendSettings
 from backend.app.main import create_app
+from tests.support import sign_in
 
 
 @pytest.fixture
 def backend() -> Iterator[httpx.Client]:
     settings = BackendSettings(database_url="sqlite+pysqlite:///:memory:")
     with TestClient(create_app(settings), base_url="http://backend") as client:
+        sign_in(client)
         yield cast(httpx.Client, client)  # see tests/conftest.py
 
 

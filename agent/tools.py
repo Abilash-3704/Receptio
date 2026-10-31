@@ -15,6 +15,7 @@ from agent.faq import NO_ANSWER_REASON, NO_ANSWER_SPEECH
 from agent.llm import ToolSpec
 from agent.times import resolve, say_date
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
+from backend.app.redaction import remember_name
 
 TOOL_SPECS = [
     ToolSpec(
@@ -329,11 +330,13 @@ class ToolBox:
         return ToolResult(True, {"found": True, "facts": facts})
 
     def _tool_record_patient(self, name: str, phone: str) -> ToolResult:
+        remember_name(name)  # removed from this process's log output from now on
         self._state.patient_name = name.strip()
         self._state.patient_phone = phone.strip()
         return ToolResult(True)
 
     def _tool_identify_patient(self, name: str, phone: str) -> ToolResult:
+        remember_name(name)
         state = self._state
         state.identity, state.known_appointments, state.target = None, [], None
         state.rescheduling = state.awaiting_cancel_answer = state.cancel_agreed = False

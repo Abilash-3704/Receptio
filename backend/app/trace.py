@@ -1,8 +1,8 @@
 """Read a stored Call back whole: transcript, tool calls, LLM calls, latency, cost, Escalations.
 
 This is the one read model of a Call. The trace viewer and the eval harness both call
-`load_trace`; there is deliberately no HTTP endpoint for it (it carries personal data in full,
-and the dashboard that may show it needs authentication first: ticket 18).
+`load_trace`; it is served only by the staff-login dashboard (backend/app/dashboard.py),
+because it carries personal data in full.
 
 Cost per turn: a Caller turn carries the Claude cost of answering it (measured tokens x price); in
 a voice Call an agent turn carries the Cartesia cost of its characters. Deepgram has no per-turn

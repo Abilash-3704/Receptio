@@ -114,3 +114,14 @@ def held(backend: httpx.Client, service: str, provider: str, start: str) -> int:
     response = place_hold(backend, service, provider, start)
     assert response.status_code == 201, response.text
     return response.json()["id"]
+
+
+def sign_in(client: Any) -> None:
+    """Make a test client both the agent (service token) and staff (Basic)."""
+    client.headers["X-Service-Token"] = SERVICE_TOKEN
+    client.auth = ("staff", STAFF_PASSWORD)
+
+
+# Credentials the test backend is configured with (obviously fake, never real secrets).
+SERVICE_TOKEN = "test-service-token-0123456789"
+STAFF_PASSWORD = "test-staff-password-0123456789"
