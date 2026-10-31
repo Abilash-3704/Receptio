@@ -1,7 +1,7 @@
 """Agent service entrypoint.
 
 Tracer: a small HTTP service that can run a text-mode Call against the clinic backend.
-TODO (ticket 12): start the LiveKit voice worker from agent/pipeline.py alongside this.
+The voice worker is a separate module (voice/worker.py), run as its own service.
 """
 
 import uvicorn

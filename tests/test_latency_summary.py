@@ -15,9 +15,9 @@ def turn(total: int | None, **extra: object) -> str:
         "turn": 1,
         "asr_final_ms": 100,
         "llm_first_token_ms": 400,
-        "tts_first_audio_ms": total,
+        "tts_first_audio_ms": None if total is None else total - 400,
         "total_ms": total,
-        "since_asr_final_ms": None if total is None else total - 100,
+        "total_from_speech_end_ms": None if total is None else total + 100,
         "interrupted": total is None,
     }
     record.update(extra)

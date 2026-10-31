@@ -53,7 +53,7 @@ def test_a_turn_streams_the_agents_sentences_and_marks_the_first_text(
     timings.on_tts_first_audio(5.0)
 
     assert spoken == ["We open at nine.", "Shall I book you in?"]
-    assert lines[0]["llm_first_token_ms"] == 250  # clock read once, when the first sentence left
+    assert lines[0]["llm_first_token_ms"] == 150  # first text at 0.25 s, ASR final at 0.1 s
 
 
 def test_the_safety_detector_still_runs_first_in_voice(backend: httpx.Client) -> None:

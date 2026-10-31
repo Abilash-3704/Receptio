@@ -2,7 +2,7 @@
 
 An AI voice receptionist for a fictional dental clinic in Bengaluru. Callers reach it through a web client, never a real phone number. See `GLOSSARY.md` for vocabulary, `docs/architecture.md` for decisions and `docs/metrics.md` for targets.
 
-> Status: a Caller can book an Appointment in a text-mode Call (scripted LLM in tests). Voice pipeline arrives in later tickets.
+> Status: a Caller can book an Appointment in a text-mode Call (scripted LLM in tests). A voice loop (LiveKit, Deepgram, Claude, Cartesia) runs end to end with a synthetic Caller; the human mic and browser checks are listed under "Voice mode" and are not yet done.
 
 ## Quickstart
 
@@ -32,7 +32,7 @@ TEST_DATABASE_URL=postgresql+psycopg://receptio:receptio@localhost:55432/recepti
 
 The test database's `public` schema is dropped and rebuilt for every test, so point it at a throwaway database only. The backend applies Alembic migrations (`backend/migrations`) on startup for Postgres.
 
-The Anthropic SDK is a normal dependency, held at 1.x because `livekit-plugins-anthropic` 1.8.10 needs `anthropic<2`. The LiveKit voice packages are an optional extra (`uv sync --extra voice`). LiveKit is not in Compose yet (TODO, ticket 12).
+The Anthropic SDK is a normal dependency, held at 1.x because `livekit-plugins-anthropic` 1.8.10 needs `anthropic<2`. The LiveKit voice packages are an optional extra (`uv sync --extra voice`, needed for `voice/`; CI installs it).
 
 ### Text-mode booking and scenarios
 
@@ -85,6 +85,50 @@ Cost per Call = (input tokens x input price + output tokens x output price) per 
 The baseline file is `{"schema_version": 1, "mode": ..., "scenarios": core_count, "metrics": {name: value}}` holding the gated metrics (higher or lower is better) and the number of core scenarios, which may grow but not shrink; `evals.baseline.compare_to_baseline(report, baseline, tolerance)` returns the regressions, empty meaning pass. Simulated runs are noisy, so `--check-baseline` allows a 0.05 tolerance there.
 
 Friction: Starlette's `TestClient` subclasses `httpx2.Client` instead of `httpx.Client` in this dependency set. Tests cast it back (see `tests/conftest.py`); the agent's backend code does not depend on httpx exception classes for that reason.
+
+## Voice mode
+
+`voice/` is the voice pipeline. It drives the same `TextCall` agent core as text mode (safety detector first, code-recorded read-back yes, Escalation rules), and the core never imports LiveKit.
+
+```
+voice/worker.py      LiveKit agent worker: Silero VAD -> Deepgram ASR -> agent core (Claude) -> Cartesia TTS; barge-in by LiveKit
+voice/driver.py      one Caller turn through the core, yielded sentence by sentence (no LiveKit import)
+voice/timing.py      per-turn timing record, one JSON line per turn (no LiveKit import)
+voice/summary.py     p50/p95 over those lines; scripts/latency_summary is its command line
+voice/web.py         token endpoint + static page (voice/web/index.html, livekit-client 2.23.0 from jsDelivr)
+deploy/livekit.yaml  self-hosted LiveKit server config (run with --dev: devkey/secret, local only)
+```
+
+Run it (provider keys in `.env`; the LiveKit values are in `.env.example`):
+
+```
+docker compose up --build     # adds livekit (:7880, 7881/tcp, 7882/udp), voice-agent, web (:8002)
+open http://localhost:8002    # Start call, allow the microphone
+```
+
+Without Docker: run a LiveKit server (`livekit-server --dev`), the backend, `python -m voice.worker start` and `uvicorn voice.web:create_app --factory --port 8002`. Turn timings go to `logs/voice-turns.jsonl` (ignored by Git) and the worker's stdout. `WORKER_PORT` moves the worker's health port (default 8081) if it is taken.
+
+Design notes:
+
+- The agent core answers a whole LLM step at a time, because its guards (times Availability did not return, prices `search_faq` did not return) must see the full text before the Caller hears any of it. So speech starts on the first *sentence* of the reply, not the first token, and "LLM first token" in the log is when the first sentence became available.
+- Preemptive generation is off: the core mutates Call state (Holds, Escalations) when it answers, so it must run exactly once per Caller turn.
+- `ReceptioAgent.llm_node` replaces LiveKit's LLM step. The session still needs an LLM object (LiveKit refuses to generate a reply without one), so a `livekit-plugins-anthropic` instance is passed that is never called.
+- If the Caller barges in while the core is mid-step, the step still finishes (it runs in a thread) and its effects stand: the state machine, not what was heard, is the Call's truth. The stored transcript records what the agent said, not how much of it was heard.
+- The token endpoint is unauthenticated and each token starts a Call that spends provider money. It is for local use only. The per-Call duration cap and per-visitor and daily limits are ticket 13; do not expose `web` publicly before that.
+
+Checked without a human (what was measured is in `docs/latency-budget.md`): the self-hosted LiveKit server starts, the worker registers and joins a room, the token endpoint mints a room-scoped token, and `scripts/voice_smoke.py` (a synthetic Caller publishing Cartesia-generated speech) gets the disclosure first, has its speech transcribed by Deepgram, gets an answer from the core and Cartesia audio back, with timing lines logged. The timing and summary logic is unit tested on synthetic logs.
+
+`scripts/voice_smoke.py "phrase" ...` spends a few cents of real provider money per run. CI never runs it.
+
+### Manual checklist (needs a human with a microphone and a browser)
+
+1. `docker compose up --build`, open `http://localhost:8002` in Chrome or Firefox, press Start call, allow the microphone.
+2. The first thing you hear is the AI and recording disclosure, before you say anything. Do not talk over it (it is not interruptible).
+3. Ask "What are your opening hours?" and confirm a spoken answer. Then book a Cleaning end to end by voice and check the Appointment (`curl localhost:8000/calls/<id>`).
+4. Barge-in: while the agent is mid-sentence (ask for something long, such as the list of Services), start talking. The agent must go silent at once, not finish the sentence. Note the delay you feel.
+5. Say an Emergency sentence ("my father collapsed and is not breathing") and confirm the fixed 112 script, spoken without the LLM pause.
+6. Press End call; confirm the Call is `ended` in the backend.
+7. Latency: hold Calls totalling 20 or more turns (they append to the same log), then run `scripts/latency_summary logs/voice-turns.jsonl --min-turns 20`. Paste the output into `docs/latency-budget.md` with the date, machine, network and settings. Then tick the last two boxes in `.scratch/receptio-v1/issues/12-voice-loop-and-latency.md`.
 
 ## Provider spend caps checklist
 

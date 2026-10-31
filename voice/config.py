@@ -15,6 +15,9 @@ class VoiceSettings(BaseSettings):
     livekit_api_key: str = "devkey"
     livekit_api_secret: str = "secret"
 
+    # The worker's own health/metrics HTTP port (LiveKit's default is 8081 in production mode).
+    worker_port: int = 8081
+
     deepgram_api_key: SecretStr | None = None
     cartesia_api_key: SecretStr | None = None
     cartesia_voice: str = "f786b574-daa5-4673-aa0c-cbe3e8534c02"  # the plugin's default voice

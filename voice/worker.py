@@ -33,6 +33,7 @@ from livekit.agents.voice.events import (
     UserInputTranscribedEvent,
     UserStateChangedEvent,
 )
+from livekit.plugins import anthropic as livekit_anthropic
 from livekit.plugins import cartesia, deepgram, silero
 
 from agent.anthropic_llm import make_anthropic_llm
@@ -96,7 +97,14 @@ def prewarm(proc: JobProcess) -> None:
     proc.userdata["vad"] = silero.VAD.load()
 
 
-server = AgentServer(setup_fnc=prewarm)
+_settings = VoiceSettings()  # LiveKit's own env lookup ignores .env, so pass the values in
+server = AgentServer(
+    setup_fnc=prewarm,
+    ws_url=_settings.livekit_url,
+    api_key=_settings.livekit_api_key,
+    api_secret=_settings.livekit_api_secret,
+    port=_settings.worker_port,
+)
 
 
 @server.rtc_session()
@@ -106,6 +114,9 @@ async def entrypoint(ctx: JobContext) -> None:
     if voice.deepgram_api_key is None or voice.cartesia_api_key is None:
         raise RuntimeError("DEEPGRAM_API_KEY and CARTESIA_API_KEY must be set for voice Calls")
 
+    if agent_settings.anthropic_api_key is None:
+        raise RuntimeError("ANTHROPIC_API_KEY must be set for voice Calls")
+    anthropic_key = agent_settings.anthropic_api_key.get_secret_value()
     backend = make_backend_client(agent_settings)
     call = open_text_call(backend, llm=make_anthropic_llm(agent_settings))
     timings = TurnTimings(call.call_id, emit=write_line(voice.turn_log_path))
@@ -113,6 +124,9 @@ async def entrypoint(ctx: JobContext) -> None:
 
     session = AgentSession(
         vad=ctx.proc.userdata["vad"],
+        # The session refuses to generate a reply without an LLM object, but ReceptioAgent.llm_node
+        # never calls it: replies come from the agent core's own LLM (agent/anthropic_llm.py).
+        llm=livekit_anthropic.LLM(model=agent_settings.llm_model, api_key=anthropic_key),
         stt=deepgram.STT(model=voice.asr_model, api_key=voice.deepgram_api_key.get_secret_value()),
         tts=cartesia.TTS(
             voice=voice.cartesia_voice, api_key=voice.cartesia_api_key.get_secret_value()
@@ -127,6 +141,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     @session.on("user_state_changed")
     def _user_state(ev: UserStateChangedEvent) -> None:  # pyright: ignore[reportUnusedFunction]
+        logger.info("user %s -> %s", ev.old_state, ev.new_state)
         if ev.new_state == "speaking":
             timings.on_user_speech_start(time.monotonic())
         elif ev.old_state == "speaking":
@@ -134,12 +149,13 @@ async def entrypoint(ctx: JobContext) -> None:
 
     @session.on("user_input_transcribed")
     def _asr(ev: UserInputTranscribedEvent) -> None:  # pyright: ignore[reportUnusedFunction]
+        logger.info("asr final=%s chars=%d", ev.is_final, len(ev.transcript))
         if ev.is_final:
             timings.on_asr_final(time.monotonic())
 
     @session.on("agent_state_changed")
     def _agent_state(ev: AgentStateChangedEvent) -> None:  # pyright: ignore[reportUnusedFunction]
-        logger.debug("agent %s -> %s", ev.old_state, ev.new_state)
+        logger.info("agent %s -> %s", ev.old_state, ev.new_state)
 
     async def finish() -> None:
         timings.close()

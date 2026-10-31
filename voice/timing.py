@@ -1,19 +1,27 @@
 """Per-turn timing record for the voice loop. Pure logic: no LiveKit, no clock of its own.
 
-The voice pipeline reports four moments per Caller turn, as seconds on one clock:
-end of Caller speech (voice activity stopped), speech-recognition final, LLM first output, and the
-first agent audio. One structured JSON line is emitted per turn, with every stage as a cumulative
-number of milliseconds since the end of Caller speech. `total_ms` is the last stage, i.e. end of
-speech to first agent audio (the metric in docs/metrics.md). `since_asr_final_ms` is the same
-span measured from the recognition final, the other reading of that metric.
+The voice pipeline reports four moments per Caller turn, as seconds on one clock: the voice
+activity detector's end of Caller speech, the speech-recognition final, the first agent text
+(from the agent core), and the first agent audio. One structured JSON line is emitted per turn:
+
+- `asr_final_ms`: ASR final minus the VAD end of speech. Negative when the recogniser finalised
+  before the VAD's silence window closed, which is the usual order.
+- `llm_first_token_ms`: ASR final to the first agent text (the core answers a whole step at once).
+- `tts_first_audio_ms`: first agent text to first agent audio.
+- `total_ms`: ASR final to first agent audio, the latency definition in docs/metrics.md. It is
+  `llm_first_token_ms + tts_first_audio_ms`.
+- `total_from_speech_end_ms`: VAD end of speech to first agent audio, a stricter reading that
+  includes the wait for the VAD to decide the Caller stopped (itself later than the real end).
+
+A field is null where a moment was not seen, e.g. a turn cut off before any agent audio.
 """
 
 import json
 from collections.abc import Callable
 
 
-def _ms(start: float, end: float | None) -> int | None:
-    return None if end is None else round((end - start) * 1000)
+def _ms(start: float, end: float) -> int:
+    return round((end - start) * 1000)
 
 
 class TurnTimings:
@@ -30,6 +38,9 @@ class TurnTimings:
         self._pending = False
 
     def on_speech_end(self, t: float) -> None:
+        if self._pending and self._speech_end is None:
+            self._speech_end = t  # the VAD closed after the recogniser's final: same turn
+            return
         self._abandon()  # an earlier turn still waiting for audio never got one
         self._speech_end = t
         self._pending = True
@@ -61,19 +72,19 @@ class TurnTimings:
             self._reset()
 
     def _flush(self, audio: float | None, interrupted: bool) -> None:
-        asr = self._asr_final
-        origin = self._speech_end if self._speech_end is not None else asr
+        asr, llm, vad = self._asr_final, self._llm_first, self._speech_end
+        origin = asr if asr is not None else vad
         assert origin is not None
         self._turn += 1
         record = {
             "event": "turn_timing",
             "call_id": self._call_id,
             "turn": self._turn,
-            "asr_final_ms": _ms(origin, asr),
-            "llm_first_token_ms": _ms(origin, self._llm_first),
-            "tts_first_audio_ms": _ms(origin, audio),
-            "total_ms": _ms(origin, audio),
-            "since_asr_final_ms": None if asr is None or audio is None else _ms(asr, audio),
+            "asr_final_ms": None if asr is None or vad is None else _ms(vad, asr),
+            "llm_first_token_ms": None if llm is None else _ms(origin, llm),
+            "tts_first_audio_ms": None if llm is None or audio is None else _ms(llm, audio),
+            "total_ms": None if audio is None else _ms(origin, audio),
+            "total_from_speech_end_ms": None if vad is None or audio is None else _ms(vad, audio),
             "interrupted": interrupted,
         }
         self._reset()

@@ -13,7 +13,7 @@ STAGES = (
     "llm_first_token_ms",
     "tts_first_audio_ms",
     "total_ms",
-    "since_asr_final_ms",
+    "total_from_speech_end_ms",
 )
 MIN_TURNS = 20  # the ticket's bar for a latency summary
 
@@ -82,13 +82,17 @@ def render(summary: Summary) -> str:
         f"{summary.completed} completed turns "
         f"({summary.interrupted} cut off before any agent audio, "
         f"{summary.skipped_lines} other lines skipped)",
-        "stage                  n     p50 ms    p95 ms",
+        f"{'stage':<26} {'n':>4} {'p50 ms':>9} {'p95 ms':>9}",
     ]
     for stage in STAGES:
         stats = summary.stages.get(stage)
         if stats:
-            out.append(f"{stage:<20} {stats.n:>4} {stats.p50:>9} {stats.p95:>9}")
-    out.append("total_ms = end of speech to first agent audio; target p50 < 800, p95 < 1500.")
+            out.append(f"{stage:<26} {stats.n:>4} {stats.p50:>9} {stats.p95:>9}")
+    out.append(
+        "total_ms = ASR final to first agent audio (docs/metrics.md); "
+        "total_from_speech_end_ms = VAD end of speech to first agent audio."
+    )
+    out.append("Target (docs/metrics.md): p50 < 800 ms, p95 < 1500 ms.")
     if not summary.enough_for_report:
         out.append(
             f"NOTE: fewer than {MIN_TURNS} completed turns; too few to report p50/p95 as a result."
