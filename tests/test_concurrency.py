@@ -162,4 +162,6 @@ def test_concurrent_reschedules_of_one_appointment_confirm_exactly_one(
         responses = race([lambda h=h: confirm_reschedule(backend, h) for h in holds])
 
         assert codes(responses) == [201, 409, 409], start
-        assert status_of(backend, original["id"]) == "cancelled"
+        assert (
+            status_of(backend, original["id"], name=f"Patient {chr(ord('A') + n)}") == "cancelled"
+        )
