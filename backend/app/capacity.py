@@ -89,11 +89,10 @@ def admit(
     day = _day(now)
     reserve = settings.call_max_seconds
     if settings.caps_test_mode:
-        session.add(
-            CallAdmission(room=room, day=day, reserved_seconds=0, settled=False, admitted_at=now)
+        return _record(
+            session,
+            CallAdmission(room=room, day=day, reserved_seconds=0, settled=False, admitted_at=now),
         )
-        session.commit()
-        return None
     steps = [
         (IP, _digest(ip), 1, settings.ip_calls_per_day, "ip_limit"),
         (VISITOR, _digest(browser, ip), 1, settings.visitor_calls_per_day, "visitor_limit"),
@@ -102,12 +101,27 @@ def admit(
     for scope, key, amount, limit, reason in steps:
         if not _take(session, scope, key, day, amount, limit):
             session.rollback()
+            if session.get(CallAdmission, room) is not None:
+                return None  # a concurrent request admitted this room while this one was refused
             return Refused(reason, REFUSALS[reason].format(n=settings.visitor_calls_per_day))
-    session.add(
-        CallAdmission(room=room, day=day, reserved_seconds=reserve, settled=False, admitted_at=now)
+    return _record(
+        session,
+        CallAdmission(
+            room=room, day=day, reserved_seconds=reserve, settled=False, admitted_at=now
+        ),
     )
-    session.commit()
-    return None
+
+
+def _record(session: Session, admission: CallAdmission) -> None:
+    """Store the admission. If a concurrent request admitted the same room first, this one is a
+    repeat: roll back its charges (the room is charged once) and answer as admitted."""
+    session.add(admission)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        if session.get(CallAdmission, admission.room) is None:
+            raise
 
 
 def settle(session: Session, now: datetime, room: str, used_seconds: int) -> bool:

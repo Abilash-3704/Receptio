@@ -87,3 +87,17 @@ def test_settling_the_same_call_concurrently_gives_the_minutes_back_once(
     # Exactly one Call's 5 minutes came back: one more fits, a second does not.
     assert admit(backend, "three", browser="b3").status_code == 201
     assert admit(backend, "four", browser="b4").status_code == 429
+
+
+def test_concurrent_admissions_of_one_room_are_all_admitted_and_charged_once(
+    backend_factory: BackendFactory, clock: FakeClock
+) -> None:
+    backend = backend_factory()
+
+    for day in range(ROUNDS):
+        responses = race([lambda day=day: admit(backend, f"same-{day}") for _ in range(8)])
+
+        assert [r.status_code for r in responses] == [201] * 8, f"day {day}"
+        # One Call was charged, not eight: the visitor still has two of their three.
+        assert [admit(backend, f"d{day}-x{n}").status_code for n in range(3)] == [201, 201, 429]
+        clock.advance(timedelta(days=1))
