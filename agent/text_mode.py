@@ -86,7 +86,7 @@ class TurnProfile:
     llm_steps: int = 0
     llm_ms: int = 0
     tool_ms: int = 0
-    tools: list[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=lambda: list[str]())
 
 
 MAX_STEPS_PER_TURN = 8
