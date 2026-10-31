@@ -56,6 +56,17 @@ class CallState:
     awaiting_read_back_answer: bool = False
     read_back_agreed: bool = False
     appointment_id: int | None = None
+    # Escalation (agent/escalation.py): failed attempts in a row per step, whether the Call has
+    # been passed to staff, and the reason held while waiting for a number to ring back.
+    failures: dict[str, int] = field(default_factory=lambda: {})
+    escalated: bool = False
+    callback_reason: str | None = None
+    number_asks: int = 0
+
+    def record_outcome(self, step: str, ok: bool) -> int:
+        """Count consecutive failures of one step; a success resets it. Returns the count."""
+        self.failures[step] = 0 if ok else self.failures.get(step, 0) + 1
+        return self.failures[step]
 
     def summary(self) -> dict[str, Any]:
         """The compact per-turn view the LLM gets."""

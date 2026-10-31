@@ -6,9 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] A Handoff is offered only during Clinic Hours, a Callback Request otherwise
-- [ ] Every Escalation is stored with a reason
-- [ ] The open/closed override changes which path is taken without a restart
-- [ ] Two failures on the same step produce an Escalation
-- [ ] Asking for a human at any point produces an Escalation
-- [ ] Scenarios cover Handoff, Callback Request and the retry cap
+- [x] A Handoff is offered only during Clinic Hours, a Callback Request otherwise
+- [x] Every Escalation is stored with a reason
+- [x] The open/closed override changes which path is taken without a restart
+- [x] Two failures on the same step produce an Escalation
+- [x] Asking for a human at any point produces an Escalation
+- [x] Scenarios cover Handoff, Callback Request and the retry cap

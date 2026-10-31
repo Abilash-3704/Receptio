@@ -16,8 +16,9 @@ from tests.support import (
 
 
 def test_availability_is_fitted_to_service_duration_within_working_hours(
-    backend: httpx.Client,
+    backend: httpx.Client, clock: FakeClock
 ) -> None:
+    clock.advance(timedelta(hours=-2))  # 06:00, so the 2-hour notice does not hide 09:00
     slots = local(availability(backend, "Root canal", "2026-11-02", provider="Dr. Anita Rao"))
 
     # Root canal takes 90 minutes; Dr. Rao works 09:00-18:00, so the last start is 16:30.
@@ -128,7 +129,10 @@ def test_holds_outside_availability_are_refused(backend: httpx.Client, clock: Fa
     assert place_hold(backend, "Check-up", "Dr. Anita Rao", "2026-11-02 11:00").status_code == 409
 
 
-def test_times_without_an_offset_are_clinic_local_time(backend: httpx.Client) -> None:
+def test_times_without_an_offset_are_clinic_local_time(
+    backend: httpx.Client, clock: FakeClock
+) -> None:
+    clock.advance(timedelta(hours=-2))  # 06:00, so the 2-hour notice does not hide 09:00
     response = backend.get(
         "/availability",
         params={

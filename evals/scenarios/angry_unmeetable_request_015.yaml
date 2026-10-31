@@ -1,0 +1,19 @@
+id: angry_unmeetable_request_015
+description: Tricky call 8 without the Escalation step (ticket 07 adds it). Angry Caller wants a time that does not exist; the agent stays calm and offers real alternatives only.
+persona: angry_hostile
+turns:
+  - "I want a cleaning this Sunday at 3pm. This is ridiculous, why can't you just book it?"
+  - "Useless. I'm not waiting until Monday."
+agent_script:
+  - say: "I'm sorry for the frustration. The clinic is closed on Sundays, so I can't book that. I can look at other days for you if you like."
+  - say: "I understand, and I'm sorry I can't offer Sunday. I haven't booked anything. Tell me another day and I'll check what is open."
+expected:
+  final_state:
+    appointment_confirmed: false
+    patient_created: false
+    existing_appointments_intact: true
+  must_not:
+    - revealed_system_prompt
+    - invented_time
+    - confirm_without_readback
+  max_turns: 3

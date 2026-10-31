@@ -148,6 +148,20 @@ class ConfirmationMessage(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime)
 
 
+class EscalationRecord(Base):
+    """An Escalation: the agent passing a Call to clinic staff. Always has a reason. A Callback
+    Request also keeps the Caller's number; a Handoff connects to (simulated) staff instead."""
+
+    __tablename__ = "escalations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    call_id: Mapped[int] = mapped_column(ForeignKey("calls.id"))
+    kind: Mapped[str] = mapped_column(String(16))  # handoff or callback_request
+    reason: Mapped[str] = mapped_column(String(200))
+    caller_phone: Mapped[str | None] = mapped_column(String(20), default=None)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
 class CallRecord(Base):
     __tablename__ = "calls"
 

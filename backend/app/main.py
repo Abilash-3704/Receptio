@@ -1,21 +1,22 @@
 from collections.abc import AsyncGenerator, Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app import booking
+from backend.app import booking, clinic_hours
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
 from backend.app.config import BackendSettings
 from backend.app.db import (
     AppointmentRecord,
     CallRecord,
     ConfirmationMessage,
+    EscalationRecord,
     Patient,
     Provider,
     Service,
@@ -28,6 +29,12 @@ from backend.app.seed import seed
 
 # Longest range one Availability query may cover.
 MAX_AVAILABILITY_DAYS = 31
+
+# Ids are Postgres 4-byte integers. A path or query id outside that range cannot exist, and a body
+# id must be a real integer (not true, 1.5 or "1"): reject it as a 422 instead of passing it on.
+MAX_ID = 2**31 - 1
+RowId = Annotated[int, Field(ge=1, le=MAX_ID)]
+BodyId = Annotated[int, Field(ge=1, le=MAX_ID, strict=True)]
 
 
 class ProviderOut(BaseModel):
@@ -49,8 +56,8 @@ class SlotOut(BaseModel):
 
 
 class HoldIn(BaseModel):
-    service_id: int
-    provider_id: int
+    service_id: BodyId
+    provider_id: BodyId
     start: datetime
 
 
@@ -71,9 +78,9 @@ class ConfirmIn(BaseModel):
 
 
 class RescheduleIn(BaseModel):
-    provider_id: int
+    provider_id: BodyId
     start: datetime
-    service_id: int | None = None  # defaults to the original Appointment's Service
+    service_id: BodyId | None = None  # defaults to the original Appointment's Service
 
 
 class AppointmentOut(BaseModel):
@@ -101,9 +108,42 @@ def aware(value: datetime) -> datetime:
     return value.replace(tzinfo=CLINIC_TZ) if value.tzinfo is None else value
 
 
+class ClinicOverrideIn(BaseModel):
+    mode: Literal["open", "closed"] | None
+
+
+class EscalationIn(BaseModel):
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    caller_phone: str | None = None
+
+
+class EscalationOut(BaseModel):
+    id: int
+    call_id: int
+    kind: str  # handoff or callback_request
+    reason: str
+    caller_phone: str | None
+    created_at: datetime
+
+
+def escalation_out(record: EscalationRecord) -> EscalationOut:
+    return EscalationOut(
+        id=record.id,
+        call_id=record.call_id,
+        kind=record.kind,
+        reason=record.reason,
+        caller_phone=record.caller_phone,
+        created_at=record.created_at,
+    )
+
+
+# Longest single utterance stored in a transcript. Caller speech is untrusted input.
+MAX_TURN_CHARS = 2000
+
+
 class TurnIn(BaseModel):
-    speaker: str
-    text: str
+    speaker: Literal["caller", "agent"]
+    text: Annotated[str, Field(min_length=1, max_length=MAX_TURN_CHARS)]
 
 
 class CallOut(BaseModel):
@@ -120,7 +160,7 @@ def _out(record: CallRecord) -> CallOut:
         status=record.status,
         started_at=record.started_at,
         ended_at=record.ended_at,
-        transcript=[TurnIn(**t) for t in record.transcript],
+        transcript=[TurnIn.model_validate(t) for t in record.transcript],
     )
 
 
@@ -194,10 +234,10 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
     @app.get("/availability")
     def availability(  # pyright: ignore[reportUnusedFunction]
         session: SessionDep,
-        service_id: int,
+        service_id: RowId,
         start: datetime,
         end: datetime,
-        provider_id: int | None = None,
+        provider_id: RowId | None = None,
     ) -> list[SlotOut]:
         start, end = aware(start), aware(end)
         if end <= start or end - start > timedelta(days=MAX_AVAILABILITY_DAYS):
@@ -265,7 +305,7 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     @app.post("/holds/{hold_id}/read-back", response_model=None)
     def record_read_back(  # pyright: ignore[reportUnusedFunction]
-        hold_id: int, session: SessionDep, idempotency_key: IdempotencyKey
+        hold_id: RowId, session: SessionDep, idempotency_key: IdempotencyKey
     ) -> JSONResponse:
         def work() -> tuple[int, BaseModel]:
             return 200, hold_out(booking.record_read_back(session, hold_id, clock()))
@@ -276,7 +316,7 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     @app.post("/holds/{hold_id}/confirm", status_code=201, response_model=None)
     def confirm_hold(  # pyright: ignore[reportUnusedFunction]
-        hold_id: int,
+        hold_id: RowId,
         session: SessionDep,
         idempotency_key: IdempotencyKey,
         body: ConfirmIn | None = None,
@@ -293,7 +333,7 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     @app.get("/appointments/{appointment_id}")
     def read_appointment(  # pyright: ignore[reportUnusedFunction]
-        appointment_id: int, session: SessionDep
+        appointment_id: RowId, session: SessionDep
     ) -> AppointmentOut:
         record = session.get(AppointmentRecord, appointment_id)
         if record is None:
@@ -302,7 +342,7 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     @app.post("/appointments/{appointment_id}/cancel", response_model=None)
     def cancel_appointment(  # pyright: ignore[reportUnusedFunction]
-        appointment_id: int, session: SessionDep, idempotency_key: IdempotencyKey
+        appointment_id: RowId, session: SessionDep, idempotency_key: IdempotencyKey
     ) -> JSONResponse:
         def work() -> tuple[int, BaseModel]:
             return 200, appointment_out(session, booking.cancel(session, appointment_id))
@@ -313,7 +353,7 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     @app.post("/appointments/{appointment_id}/reschedule", status_code=201, response_model=None)
     def reschedule_appointment(  # pyright: ignore[reportUnusedFunction]
-        appointment_id: int,
+        appointment_id: RowId,
         body: RescheduleIn,
         session: SessionDep,
         idempotency_key: IdempotencyKey,
@@ -344,7 +384,7 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         response_model=None,
     )
     def send_confirmation_message(  # pyright: ignore[reportUnusedFunction]
-        appointment_id: int, session: SessionDep, idempotency_key: IdempotencyKey
+        appointment_id: RowId, session: SessionDep, idempotency_key: IdempotencyKey
     ) -> JSONResponse:
         """Record the mocked Confirmation Message for a Confirmed Appointment."""
 
@@ -362,12 +402,65 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     @app.get("/confirmation-messages")
     def list_confirmation_messages(  # pyright: ignore[reportUnusedFunction]
-        session: SessionDep, appointment_id: int | None = None
+        session: SessionDep, appointment_id: RowId | None = None
     ) -> list[ConfirmationMessageOut]:
         query = select(ConfirmationMessage).order_by(ConfirmationMessage.id)
         if appointment_id is not None:
             query = query.where(ConfirmationMessage.appointment_id == appointment_id)
         return [message_out(m) for m in session.scalars(query)]
+
+    # The demo-only override: "open", "closed" or None (follow the real Clinic Hours).
+    clinic_override: list[str | None] = [None]
+
+    def clinic_is_open(session: Session) -> bool:
+        if clinic_override[0] is not None:
+            return clinic_override[0] == "open"
+        return clinic_hours.is_open(session, clock())
+
+    @app.get("/clinic-status")
+    def clinic_status(session: SessionDep) -> dict[str, bool | str | None]:  # pyright: ignore[reportUnusedFunction]
+        return {"open": clinic_is_open(session), "override": clinic_override[0]}
+
+    if settings.demo_controls_enabled:
+
+        @app.put("/demo/clinic-override")
+        def set_clinic_override(body: ClinicOverrideIn) -> dict[str, str | None]:  # pyright: ignore[reportUnusedFunction]
+            clinic_override[0] = body.mode
+            return {"override": body.mode}
+
+    @app.post("/calls/{call_id}/escalations", status_code=201, response_model=None)
+    def escalate(  # pyright: ignore[reportUnusedFunction]
+        call_id: int, body: EscalationIn, session: SessionDep, idempotency_key: IdempotencyKey
+    ) -> JSONResponse:
+        """Pass the Call to staff. The backend decides the kind: a Handoff during Clinic Hours,
+        otherwise a Callback Request."""
+
+        def work() -> tuple[int, BaseModel]:
+            get_call(session, call_id)
+            phone = None if not body.caller_phone else booking.normalise_phone(body.caller_phone)
+            record = EscalationRecord(
+                call_id=call_id,
+                kind="handoff" if clinic_is_open(session) else "callback_request",
+                reason=body.reason,
+                caller_phone=phone,
+                created_at=clock(),
+            )
+            session.add(record)
+            session.flush()
+            return 201, escalation_out(record)
+
+        return run_idempotent(
+            session,
+            idempotency_key,
+            f"POST /calls/{call_id}/escalations",
+            body.model_dump(),
+            work,
+        )
+
+    @app.get("/escalations")
+    def list_escalations(session: SessionDep) -> list[EscalationOut]:  # pyright: ignore[reportUnusedFunction]
+        query = select(EscalationRecord).order_by(EscalationRecord.id)
+        return [escalation_out(r) for r in session.scalars(query)]
 
     @app.post("/calls", status_code=201)
     def open_call(session: SessionDep) -> CallOut:  # pyright: ignore[reportUnusedFunction]
@@ -377,12 +470,12 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         return _out(record)
 
     @app.get("/calls/{call_id}")
-    def read_call(call_id: int, session: SessionDep) -> CallOut:  # pyright: ignore[reportUnusedFunction]
+    def read_call(call_id: RowId, session: SessionDep) -> CallOut:  # pyright: ignore[reportUnusedFunction]
         return _out(get_call(session, call_id))
 
     @app.post("/calls/{call_id}/turns", status_code=201)
     def add_turn(  # pyright: ignore[reportUnusedFunction]
-        call_id: int, turn: TurnIn, session: SessionDep
+        call_id: RowId, turn: TurnIn, session: SessionDep
     ) -> CallOut:
         record = get_call(session, call_id)
         if record.status != "open":
@@ -392,7 +485,7 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         return _out(record)
 
     @app.post("/calls/{call_id}/end")
-    def end_call(call_id: int, session: SessionDep) -> CallOut:  # pyright: ignore[reportUnusedFunction]
+    def end_call(call_id: RowId, session: SessionDep) -> CallOut:  # pyright: ignore[reportUnusedFunction]
         record = get_call(session, call_id)
         if record.status == "open":  # idempotent: a second end changes nothing
             record.status = "ended"

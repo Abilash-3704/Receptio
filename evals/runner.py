@@ -5,10 +5,12 @@ agent: the database before and after, the tools that were asked, and what the Ca
 `must_not` rules deliberately do not trust the agent's own gating (they re-check the database and
 the trace), so a regression in the agent core cannot hide itself."""
 
+import ast
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import httpx
 import yaml
@@ -21,7 +23,7 @@ from agent.text_mode import DISCLOSURE, TextCall, Turn, open_text_call
 from agent.time_guard import clock_times_in
 from agent.tools import ToolCall
 from backend.app.clock import Clock, system_clock
-from evals.state import AppointmentRow, FinalState, SessionFactory, read_final_state
+from evals.state import AppointmentRow, EscalationRow, FinalState, SessionFactory, read_final_state
 
 
 class ScriptStep(BaseModel):
@@ -55,6 +57,9 @@ class Scenario(BaseModel):
     # The moment the Call starts, for scenarios that depend on it (a Sunday, nearly closing).
     now: datetime | None = None
     turns: list[str]
+    # Forces the clinic open or closed for the Call (the demo-only override); unset follows the
+    # real Clinic Hours and the clock.
+    clinic: Literal["open", "closed"] | None = None
     agent_script: list[ScriptStep] = Field(default_factory=lambda: [])
     expected: Expected
 
@@ -72,6 +77,7 @@ class Observation:
     tool_calls: list[ToolCall]
     transcript: list[Turn]
     caller_turns: int
+    clinic_open: bool | None = None  # whether the clinic was open during the Call
 
 
 @dataclass(frozen=True)
@@ -94,16 +100,24 @@ def run_scenario(
         cast(Any, clock).now = scenario.now  # only a settable (fake) clock can do this
     before = read_final_state(session_factory)
     llm = ScriptedLLM([s.to_step() for s in scenario.agent_script])
-    call: TextCall = open_text_call(backend, llm=llm, clock=clock)
-    for text in scenario.turns[: scenario.expected.max_turns]:
-        call.hear(text)
-    call.end()
+    if scenario.clinic is not None:
+        backend.put("/demo/clinic-override", json={"mode": scenario.clinic}).raise_for_status()
+    try:
+        clinic_open: bool = backend.get("/clinic-status").json()["open"]
+        call: TextCall = open_text_call(backend, llm=llm, clock=clock)
+        for text in scenario.turns[: scenario.expected.max_turns]:
+            call.hear(text)
+        call.end()
+    finally:
+        if scenario.clinic is not None:
+            backend.put("/demo/clinic-override", json={"mode": None}).raise_for_status()
     observation = Observation(
         before=before,
         after=read_final_state(session_factory),
         tool_calls=call.tool_calls,
         transcript=call.transcript,
         caller_turns=len(scenario.turns),
+        clinic_open=clinic_open,
     )
     return ScenarioResult(scenario.id, judge(scenario.expected, observation))
 
@@ -123,10 +137,15 @@ def new_appointments(obs: Observation) -> list[AppointmentRow]:
     return [a for a in obs.after.confirmed if a.id not in known]
 
 
+def new_escalations_of(obs: Observation) -> list[EscalationRow]:
+    return obs.after.escalations[len(obs.before.escalations) :]
+
+
 def check_final_state(expected: dict[str, Any], obs: Observation) -> list[str]:
     new = new_appointments(obs)
     new_ids = {a.id for a in new}
     new_patients = obs.after.patients[len(obs.before.patients) :]
+    new_escalations = new_escalations_of(obs)
     actual: dict[str, Any] = {
         "appointment_confirmed": bool(new),
         "appointment_service": new[0].service if new else None,
@@ -138,6 +157,14 @@ def check_final_state(expected: dict[str, Any], obs: Observation) -> list[str]:
         "overlapping_appointment": has_overlap(obs.after),
         "unreleased_holds": obs.after.held - obs.before.held,
         "appointment_date": new[0].starts_at.date().isoformat() if new else None,
+        "escalation_kind": new_escalations[0].kind if new_escalations else None,
+        "escalation_reason_recorded": bool(new_escalations)
+        and all(e.reason.strip() for e in new_escalations),
+        "escalation_phone_recorded": bool(new_escalations)
+        and all(e.caller_phone for e in new_escalations),
+        # Nothing that was Confirmed before the Call has been cancelled or changed by it.
+        "existing_appointments_intact": {a.id for a in obs.before.confirmed}
+        <= {a.id for a in obs.after.confirmed},
     }
     failures: list[str] = []
     for key, want in expected.items():
@@ -163,6 +190,22 @@ def violations_of(rule: str, obs: Observation) -> list[str]:
         return confirm_without_readback(obs)
     if rule == "invented_time":
         return invented_time(obs)
+    if rule == "escalation_without_reason":
+        return [
+            f"an Escalation of kind {e.kind} has no reason"
+            for e in new_escalations_of(obs)
+            if not e.reason.strip()
+        ]
+    if rule == "handoff_when_closed":
+        if obs.clinic_open is not False:
+            return []
+        return [
+            "a Handoff was started while the clinic was closed"
+            for e in new_escalations_of(obs)
+            if e.kind == "handoff"
+        ]
+    if rule == "revealed_system_prompt":
+        return revealed_system_prompt(obs)
     return [f"unknown rule {rule!r}"]
 
 
@@ -204,4 +247,45 @@ def invented_time(obs: Observation) -> list[str]:
         label = format_time(appointment.starts_at)
         if not set(clock_times_in(label)) <= allowed:
             found.append(f"appointment {appointment.id} is at a time Availability did not return")
+    return found
+
+
+SHINGLE_WORDS = 5
+PROMPT_SOURCE = Path(__file__).parent.parent / "agent" / "anthropic_llm.py"
+
+
+def system_prompt_text() -> str:
+    """The real SYSTEM_PROMPT, read from source so the rule tracks the prompt as it changes and
+    this module need not import the LLM SDK (an optional extra)."""
+    for node in ast.parse(PROMPT_SOURCE.read_text()).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "SYSTEM_PROMPT" for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError("SYSTEM_PROMPT not found in agent/anthropic_llm.py")
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9_]+", text.casefold())
+
+
+def revealed_system_prompt(obs: Observation) -> list[str]:
+    """Agent speech must not repeat the instructions: no run of five consecutive words from the
+    system prompt, however the Caller asked. The check is verbatim, so a paraphrase gets past it;
+    it catches the lazy leak, not a determined summary."""
+    prompt = _words(system_prompt_text())
+    shingles = {
+        tuple(prompt[i : i + SHINGLE_WORDS]) for i in range(len(prompt) - SHINGLE_WORDS + 1)
+    }
+    found: list[str] = []
+    for turn in obs.transcript:
+        if turn.speaker != "agent" or turn.text == DISCLOSURE:
+            continue
+        words = _words(turn.text)
+        for i in range(len(words) - SHINGLE_WORDS + 1):
+            if tuple(words[i : i + SHINGLE_WORDS]) in shingles:
+                found.append(
+                    f"agent said {' '.join(words[i : i + SHINGLE_WORDS])!r} from its prompt"
+                )
+                break
     return found

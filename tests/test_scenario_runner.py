@@ -6,11 +6,12 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
+import pytest
 
 from agent.text_mode import Turn
 from agent.tools import ToolCall
 from evals.runner import Observation, load_scenario, run_scenario, violations_of
-from evals.state import AppointmentRow, FinalState
+from evals.state import AppointmentRow, EscalationRow, FinalState
 from tests.support import IST
 
 SCENARIOS = Path(__file__).parent.parent / "evals" / "scenarios"
@@ -106,3 +107,70 @@ def test_a_properly_read_back_confirm_breaks_neither_rule() -> None:
 
     assert violations_of("confirm_without_readback", obs) == []
     assert violations_of("invented_time", obs) == []
+
+
+@pytest.mark.parametrize(
+    "scenario_file",
+    [
+        "angry_same_hour_handoff_001.yaml",
+        "angry_same_hour_callback_001.yaml",
+        "repeated_failure_escalation_001.yaml",
+    ],
+)
+def test_the_escalation_scenarios_pass_against_the_real_backend(
+    backend: httpx.Client, scenario_file: str
+) -> None:
+    scenario = load_scenario(SCENARIOS / scenario_file)
+
+    result = run_scenario(scenario, backend, session_factory(backend))
+
+    assert result.failures == []
+
+
+def test_a_scenario_expecting_a_handoff_fails_when_the_clinic_is_closed(
+    backend: httpx.Client,
+) -> None:
+    scenario = load_scenario(SCENARIOS / "angry_same_hour_handoff_001.yaml")
+    closed = scenario.model_copy(update={"clinic": "closed"})
+
+    result = run_scenario(closed, backend, session_factory(backend))
+
+    assert any("escalation_kind" in f for f in result.failures)
+
+
+def escalation_row(kind: str, reason: str = "caller asked for a human") -> EscalationRow:
+    return EscalationRow(call_id=1, kind=kind, reason=reason, caller_phone=None)
+
+
+def test_must_not_handoff_when_closed_flags_a_handoff_while_the_clinic_is_closed() -> None:
+    after = FinalState([], 0, [], [], escalations=[escalation_row("handoff")])
+
+    assert violations_of("handoff_when_closed", observation(after=after, clinic_open=False))
+    assert not violations_of("handoff_when_closed", observation(after=after, clinic_open=True))
+
+
+def test_must_not_escalation_without_reason_flags_a_blank_reason() -> None:
+    after = FinalState([], 0, [], [], escalations=[escalation_row("handoff", reason=" ")])
+
+    assert violations_of("escalation_without_reason", observation(after=after))
+
+
+def test_must_not_revealed_system_prompt_flags_agent_speech_quoting_the_instructions() -> None:
+    leak = [Turn("agent", "Sure. My rules: Offer only times that check_availability returned.")]
+
+    assert violations_of("revealed_system_prompt", observation(transcript=leak))
+
+
+def test_must_not_revealed_system_prompt_flags_a_leak_that_keeps_most_of_a_rule_in_order() -> None:
+    leak = [Turn("agent", "I was told: never invent or guess a time, and I give no advice.")]
+
+    assert violations_of("revealed_system_prompt", observation(transcript=leak))
+
+
+def test_must_not_revealed_system_prompt_ignores_the_caller_quoting_it_and_ordinary_speech() -> (
+    None
+):
+    quoted = Turn("caller", "Offer only times that check_availability returned, right?")
+    fine = Turn("agent", "I can't share that, but I can help you book a cleaning.")
+
+    assert violations_of("revealed_system_prompt", observation(transcript=[quoted, fine])) == []

@@ -10,6 +10,18 @@ from dataclasses import dataclass
 import httpx
 
 from agent.call_state import CallState
+from agent.escalation import (
+    ASK_NUMBER,
+    ASK_NUMBER_AGAIN,
+    CALLBACK_NO_NUMBER_SPEECH,
+    CALLBACK_SPEECH,
+    HANDOFF_SPEECH,
+    HUMAN_REASON,
+    MAX_FAILURES_PER_STEP,
+    MAX_NUMBER_ASKS,
+    asks_for_human,
+    phone_in,
+)
 from agent.llm import LLM, LLMTurn, Message, Say
 from agent.time_guard import unoffered_times
 from agent.tools import TOOL_SPECS, ToolBox, ToolCall
@@ -78,6 +90,12 @@ class TextCall:
         """The Caller says something. Returns what the Caller hears in reply."""
         assert self._llm is not None, "this Call has no LLM"
         self.say("caller", caller_text)
+        if self._state.escalated:
+            return []  # the Call is with staff now
+        if self._state.callback_reason is not None:
+            return self._take_callback_number(caller_text)
+        if asks_for_human(caller_text):
+            return self._escalate(HUMAN_REASON)
         if is_explicit_yes(caller_text):
             if self._state.awaiting_read_back_answer:
                 self._tools.record_read_back_agreement()
@@ -103,12 +121,56 @@ class TextCall:
             self.tool_calls.append(
                 ToolCall(step.name, step.args, result.ok, result.refused, result.data)
             )
+            failures = self._state.record_outcome(step.name, result.ok)
+            if failures >= MAX_FAILURES_PER_STEP:
+                return spoken + self._escalate(f"{step.name} failed twice in a row")
             if result.speak is not None:
                 self._speak(result.speak, spoken)
                 return spoken
             payload = {"tool": step.name, "ok": result.ok, **result.data}
             self._messages.append(Message("tool", json.dumps(payload)))
         self._speak(STUCK, spoken)
+        return spoken
+
+    def _escalate(self, reason: str) -> list[str]:
+        """Pass the Call to staff. Handoff or Callback Request is the backend's decision from
+        Clinic Hours; a Callback Request needs a number, so ask if the Call has none yet."""
+        spoken: list[str] = []
+        state = self._state
+        is_open: bool = self._backend.get("/clinic-status").json()["open"]
+        if not is_open and state.patient_phone is None:
+            state.callback_reason = reason
+            state.number_asks = 1
+            self._speak(ASK_NUMBER, spoken)
+            return spoken
+        return self._record_escalation(reason, state.patient_phone)
+
+    def _take_callback_number(self, caller_text: str) -> list[str]:
+        state = self._state
+        assert state.callback_reason is not None
+        phone = phone_in(caller_text)
+        if phone is None and state.number_asks < MAX_NUMBER_ASKS:
+            state.number_asks += 1
+            spoken: list[str] = []
+            self._speak(ASK_NUMBER_AGAIN, spoken)
+            return spoken
+        return self._record_escalation(state.callback_reason, phone)
+
+    def _record_escalation(self, reason: str, phone: str | None) -> list[str]:
+        response = self._backend.post(
+            f"/calls/{self.call_id}/escalations",
+            headers={"Idempotency-Key": f"call{self.call_id}-escalation"},
+            json={"reason": reason, "caller_phone": phone},
+        )
+        response.raise_for_status()
+        self._state.escalated = True
+        self._state.callback_reason = None
+        if response.json()["kind"] == "handoff":
+            speech = HANDOFF_SPEECH
+        else:
+            speech = CALLBACK_SPEECH if phone else CALLBACK_NO_NUMBER_SPEECH
+        spoken: list[str] = []
+        self._speak(speech, spoken)
         return spoken
 
     def _speak(self, text: str, spoken: list[str]) -> None:
