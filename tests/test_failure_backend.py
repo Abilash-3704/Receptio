@@ -249,3 +249,29 @@ def test_an_emergency_is_still_spoken_when_the_whole_backend_is_down(
     call.hear("He is still not breathing")
     [stored] = escalations(backend)  # recorded as soon as the backend is back
     assert stored["reason"] == EMERGENCY_REASON
+
+
+def test_an_emergency_whose_reply_was_lost_is_not_recorded_twice_when_retried_unchanged(
+    backend: httpx.Client,
+) -> None:
+    wrapper, client = flaky(backend)
+    call = open_text_call(client, llm=ScriptedLLM([]))
+    wrapper.fail("POST", "/escalations", "timeout_after_commit", times=2)
+
+    call.hear("My father collapsed and he is not breathing")  # recorded, but no reply came back
+    call.hear("He is still not breathing")  # tried again with the same facts
+
+    assert len(escalations(backend)) == 1
+
+
+def test_an_emergency_retried_with_a_number_the_first_attempt_lacked_reaches_staff_with_it(
+    backend: httpx.Client,
+) -> None:
+    wrapper, client = flaky(backend)
+    call = open_text_call(client, llm=ScriptedLLM([]))
+    wrapper.fail("POST", "/escalations", "timeout_after_commit", times=2)
+
+    call.hear("My father collapsed and he is not breathing")  # stored without a number
+    call.hear("He is still not breathing, ring me on +91 98765 43210")
+
+    assert "+919876543210" in [e["caller_phone"] for e in escalations(backend)]

@@ -3,6 +3,7 @@
 `TextCall.hear` is the call state machine's turn loop: Caller text in, what the Caller hears out.
 The state machine records the read-back "yes" itself (ADR-0001); the LLM never can."""
 
+import hashlib
 import json
 import logging
 import re
@@ -539,13 +540,18 @@ class TextCall:
     def _record_escalation(
         self, reason: str, phone: str | None, key: str = "escalation", speak: bool = True
     ) -> list[str]:
-        """Record the Escalation (a fixed Idempotency-Key, so a retry never records a second).
-        Raises `httpx.HTTPError` if the backend still did not answer after one retry."""
+        """Record the Escalation. The Idempotency-Key is the kind of Escalation plus a digest of
+        the request, so repeating the same request (a lost reply) never records a second, while
+        a later request with different facts (a number the first attempt lacked) is not refused
+        as a reuse of the key. Raises `httpx.HTTPError` if the backend still did not answer after
+        one retry."""
+        body = {"reason": reason, "caller_phone": phone, "kind": forced_kind(reason)}
+        digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:12]
         response = self._twice(
             lambda: self._backend.post(
                 f"/calls/{self.call_id}/escalations",
-                headers={"Idempotency-Key": f"call{self.call_id}-{key}"},
-                json={"reason": reason, "caller_phone": phone, "kind": forced_kind(reason)},
+                headers={"Idempotency-Key": f"call{self.call_id}-{key}-{digest}"},
+                json=body,
             )
         )
         response.raise_for_status()
