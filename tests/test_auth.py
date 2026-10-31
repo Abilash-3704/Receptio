@@ -9,6 +9,7 @@ import re
 from typing import Any, cast
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -25,6 +26,14 @@ PUBLIC = {
     ("POST", "/capacity/admissions"),
     ("POST", "/capacity/admissions/{room}/settle"),
 }
+
+
+@pytest.fixture
+def backend(backend_factory: BackendFactory) -> httpx.Client:
+    """These tests sweep every route with wrong credentials, hundreds of failures from one address:
+    the lockout (tests/test_rate_limit_auth.py) is lifted here so it does not answer 429 instead
+    of the 401 being asserted."""
+    return backend_factory(auth_failures_per_ip=1_000_000)
 
 
 def basic(password: str, user: str = "staff") -> dict[str, str]:

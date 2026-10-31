@@ -6,7 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] The public Call endpoint rejects excess requests
+- [x] The public Call endpoint rejects excess requests (per-IP limits on `/token` and capacity admission, identification and authentication failure throttles; `tests/test_rate_limit_*.py`)
 - [ ] A documented load test of about 20 concurrent Calls reports latency percentiles under load
-- [ ] Alerts fire on a latency spike and on elevated tool failure rate
-- [ ] A secrets-handling review is documented
+  - Stand-in provider runs of 20 concurrent Calls are done and documented (`docs/load-test.md`: admission, DB, errors, percentiles of persisted timings), clearly labelled as making no claim about real provider latency. The real-provider run is NOT done (it spends money); the exact command, the cost estimate and the steps are in `docs/load-test.md`. Tick this when a human has run it and pasted the result.
+- [x] Alerts fire on a latency spike and on elevated tool failure rate (`python -m backend.app.alerts`; tested on seeded data in `tests/test_alerts.py`, and observed firing on the stand-in runs)
+- [x] A secrets-handling review is documented (`docs/security-review.md`)

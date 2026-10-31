@@ -3,6 +3,7 @@ address. Successes are free; a locked-out address is answered 429 before its cre
 compared, so it cannot keep guessing."""
 
 from datetime import timedelta
+from typing import cast
 
 import httpx
 from fastapi.testclient import TestClient
@@ -15,7 +16,8 @@ LIMIT = 4
 
 
 def guess(client: TestClient, password: str = "wrong-password-0123456789") -> httpx.Response:
-    return client.get("/escalations", headers=basic(password))  # a staff route
+    response = client.get("/escalations", headers=basic(password))  # a staff route
+    return cast(httpx.Response, response)  # call-compatible; see tests/conftest.py
 
 
 def test_repeated_wrong_staff_passwords_lock_the_address_out(
