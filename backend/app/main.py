@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app import booking, clinic_hours
+from backend.app import booking, clinic_hours, knowledge
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
 from backend.app.config import BackendSettings
 from backend.app.db import (
@@ -152,6 +152,11 @@ def escalation_out(record: EscalationRecord) -> EscalationOut:
 
 # Longest single utterance stored in a transcript. Caller speech is untrusted input.
 MAX_TURN_CHARS = 2000
+
+
+class FaqEntryOut(BaseModel):
+    topic: str
+    text: str
 
 
 class TurnIn(BaseModel):
@@ -466,6 +471,12 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         if clinic_override[0] is not None:
             return clinic_override[0] == "open"
         return clinic_hours.is_open(session, clock())
+
+    @app.get("/faq")
+    def faq(session: SessionDep, q: str | None = None) -> list[FaqEntryOut]:  # pyright: ignore[reportUnusedFunction]
+        """The knowledge base. With `q`, only the entries that answer it (possibly none)."""
+        found = knowledge.entries(session) if q is None else knowledge.search(session, q)
+        return [FaqEntryOut(topic=e.topic, text=e.text) for e in found]
 
     @app.get("/clinic-status")
     def clinic_status(session: SessionDep) -> dict[str, bool | str | None]:  # pyright: ignore[reportUnusedFunction]

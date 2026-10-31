@@ -89,6 +89,9 @@ class CallState:
     escalated: bool = False
     callback_reason: str | None = None
     number_asks: int = 0
+    # FAQ (agent/faq.py): facts looked up this Call, the only prices and clock times the agent may
+    # say besides offered times. (A Callback Request offered by the FAQ shares `callback_offer`.)
+    known_facts: list[str] = field(default_factory=lambda: [])
 
     def record_outcome(self, step: str, ok: bool) -> int:
         """Count consecutive failures of one step; a success resets it. Returns the count."""

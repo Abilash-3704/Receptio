@@ -22,6 +22,15 @@ from agent.escalation import (
     asks_for_human,
     phone_in,
 )
+from agent.faq import (
+    MEDICAL_REASON,
+    MEDICAL_SPEECH,
+    accepts_callback,
+    asks_for_medical_advice,
+    declines_callback,
+    known_clock_times,
+    unknown_amounts,
+)
 from agent.llm import LLM, LLMTurn, Message, Say
 from agent.time_guard import unoffered_times
 from agent.tools import TOOL_SPECS, ToolBox, ToolCall
@@ -96,6 +105,20 @@ class TextCall:
             return self._take_callback_number(caller_text)
         if asks_for_human(caller_text):
             return self._escalate(HUMAN_REASON)
+        state = self._state
+        if state.callback_offer is not None and not (
+            state.awaiting_read_back_answer or state.pending_date is not None
+        ):
+            if accepts_callback(caller_text):
+                reason, state.callback_offer = state.callback_offer, None
+                return self._escalate(reason)
+            if declines_callback(caller_text):
+                state.callback_offer = None
+        if asks_for_medical_advice(caller_text):
+            state.callback_offer = MEDICAL_REASON
+            medical: list[str] = []
+            self._speak(MEDICAL_SPEECH, medical)
+            return medical
         if is_explicit_yes(caller_text):
             if self._state.awaiting_read_back_answer:
                 self._tools.record_read_back_agreement()
@@ -113,9 +136,17 @@ class TextCall:
                 LLMTurn(self._state.summary(), list(self._messages), TOOL_SPECS)
             )
             if isinstance(step, Say):
-                if unoffered_times(step.text, self._state.ever_offered):
+                facts = self._state.known_facts
+                if set(unoffered_times(step.text, self._state.ever_offered)) - known_clock_times(
+                    facts
+                ):
                     # Withheld: the Caller never hears a time Availability did not return.
                     error = {"error": "you named a time that Availability did not return"}
+                    self._messages.append(Message("tool", json.dumps(error)))
+                    continue
+                if unknown_amounts(step.text, facts):
+                    # Withheld: only price ranges that search_faq returned may be said.
+                    error = {"error": "you named a price that search_faq did not return"}
                     self._messages.append(Message("tool", json.dumps(error)))
                     continue
                 self._speak(step.text, spoken)

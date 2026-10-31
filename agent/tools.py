@@ -10,6 +10,7 @@ import httpx
 
 from agent.availability_search import AvailabilitySearch
 from agent.call_state import CallState, HoldInfo, KnownAppointment
+from agent.faq import NO_ANSWER_REASON, NO_ANSWER_SPEECH
 from agent.llm import ToolSpec
 from agent.times import resolve, say_date
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
@@ -31,6 +32,16 @@ TOOL_SPECS = [
                 "provider": {"type": "string"},
             },
             "required": ["service", "when"],
+        },
+    ),
+    ToolSpec(
+        "search_faq",
+        "Look up clinic facts: hours, location, Services, price ranges, insurance accepted. "
+        "The only source for such facts; say only what it returns.",
+        {
+            "type": "object",
+            "properties": {"question": {"type": "string"}},
+            "required": ["question"],
         },
     ),
     ToolSpec(
@@ -244,6 +255,18 @@ class ToolBox:
         if not search.ok:
             return ToolResult(False, search.facts)
         return ToolResult(True, {**search.facts, "offered": [o.label for o in search.offers]})
+
+    def _tool_search_faq(self, question: str) -> ToolResult:
+        entries: list[dict[str, str]] = checked(
+            self._backend.get("/faq", params={"q": question})
+        ).json()
+        if not entries:
+            # Code says it, so the LLM cannot make something up in its place.
+            self._state.callback_offer = NO_ANSWER_REASON.format(question=question[:200])
+            return ToolResult(True, {"found": False}, speak=NO_ANSWER_SPEECH)
+        facts = [e["text"] for e in entries]
+        self._state.known_facts += facts
+        return ToolResult(True, {"found": True, "facts": facts})
 
     def _tool_record_patient(self, name: str, phone: str) -> ToolResult:
         self._state.patient_name = name.strip()
