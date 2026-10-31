@@ -58,6 +58,17 @@ def reschedule(
     )
 
 
+def read_back_reschedule(
+    backend: httpx.Client,
+    hold_id: int,
+    key: str | None = None,
+    name: str = "Asha Menon",
+    phone: str = "+91 98450 12345",
+) -> httpx.Response:
+    """The Caller's yes to a reschedule read-back, as the identified Patient."""
+    return read_back(backend, hold_id, key=key, name=name, phone=phone)
+
+
 def confirm_reschedule(
     backend: httpx.Client,
     hold_id: int,
@@ -287,7 +298,7 @@ def test_reschedule_confirms_the_new_time_and_cancels_the_old_in_one_step(
     # Nothing has changed yet: the original is intact while the Caller hears the read-back.
     assert status_of(backend, original["id"]) == "confirmed"
     hold_id = hold.json()["id"]
-    read_back(backend, hold_id)
+    read_back_reschedule(backend, hold_id)
 
     response = confirm_reschedule(backend, hold_id)
 
@@ -313,7 +324,7 @@ def test_a_failed_reschedule_leaves_the_original_confirmed(
     assert taken.status_code == 409
     # The Hold expires before confirmation.
     stale = reschedule(backend, original["id"], "Dr. Vikram Shetty", "2026-11-02 12:00").json()
-    read_back(backend, stale["id"])
+    read_back_reschedule(backend, stale["id"])
     clock.advance(timedelta(minutes=5))
     assert confirm_reschedule(backend, stale["id"]).status_code == 409
     # No read-back was recorded.
@@ -323,7 +334,7 @@ def test_a_failed_reschedule_leaves_the_original_confirmed(
     late = reschedule(
         backend, other["id"], "Dr. Vikram Shetty", "2026-11-02 13:00", name="Ravi Kumar"
     ).json()
-    read_back(backend, late["id"])
+    read_back_reschedule(backend, late["id"], name="Ravi Kumar")
     cancel(backend, other["id"], name="Ravi Kumar")
     assert confirm_reschedule(backend, late["id"], name="Ravi Kumar").status_code == 409
 
@@ -342,7 +353,7 @@ def test_a_reschedule_into_another_of_the_patients_appointments_is_rejected_whol
     morning = booked(backend, "Check-up", "Dr. Anita Rao", "2026-11-02 10:00")
     booked(backend, "Filling", "Dr. Anita Rao", "2026-11-02 14:00")
     hold = reschedule(backend, morning["id"], "Dr. Vikram Shetty", "2026-11-02 14:30").json()
-    read_back(backend, hold["id"])
+    read_back_reschedule(backend, hold["id"])
 
     response = confirm_reschedule(backend, hold["id"])
 
@@ -357,7 +368,7 @@ def test_a_retried_reschedule_confirm_returns_the_same_result(backend: httpx.Cli
     retried_hold = reschedule(backend, original["id"], "Dr. Anita Rao", "2026-11-02 16:00", key=key)
     assert retried_hold.json() == first_hold.json()
     hold_id = first_hold.json()["id"]
-    read_back(backend, hold_id)
+    read_back_reschedule(backend, hold_id)
     confirm_key = new_key()
 
     first = confirm_reschedule(backend, hold_id, key=confirm_key)
@@ -365,6 +376,29 @@ def test_a_retried_reschedule_confirm_returns_the_same_result(backend: httpx.Cli
 
     assert first.status_code == retry.status_code == 201
     assert retry.json() == first.json()
+
+
+def test_a_reschedule_hold_cannot_be_read_back_by_anyone_else(backend: httpx.Client) -> None:
+    original = booked(backend, "Filling", "Dr. Anita Rao", "2026-11-02 14:00")
+    hold_id = reschedule(
+        backend, original["id"], "Dr. Vikram Shetty", "2026-11-02 11:00"
+    ).json()["id"]
+
+    guessed = [
+        read_back(backend, hold_id),
+        read_back(backend, hold_id, name="Asha Nair", phone="+91 98450 12345"),
+        read_back(backend, hold_id, name="Asha Menon", phone="+91 98450 00000"),
+        read_back(backend, 99999),  # an id that does not exist looks exactly the same
+    ]
+
+    for response in guessed:
+        assert response.status_code == 403
+        assert response.json() == {"detail": "identification failed"}
+    # No agreement was recorded, so even the right Patient cannot confirm yet.
+    assert confirm_reschedule(backend, hold_id).status_code == 409
+    assert status_of(backend, original["id"]) == "confirmed"
+    assert read_back(backend, hold_id, name="Asha Menon", phone="+91 98450 12345").status_code == 200
+    assert confirm_reschedule(backend, hold_id).status_code == 201
 
 
 def test_a_reschedule_hold_is_confirmed_only_for_the_patient_it_belongs_to(
@@ -375,7 +409,7 @@ def test_a_reschedule_hold_is_confirmed_only_for_the_patient_it_belongs_to(
     hold_id = reschedule(
         backend, original["id"], "Dr. Vikram Shetty", "2026-11-02 11:00"
     ).json()["id"]
-    read_back(backend, hold_id)
+    read_back_reschedule(backend, hold_id)
 
     wrong_name = confirm_reschedule(backend, hold_id, name="Asha Nair")
     wrong_phone = confirm_reschedule(backend, hold_id, phone="+91 98450 00000")

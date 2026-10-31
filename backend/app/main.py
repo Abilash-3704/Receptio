@@ -326,13 +326,18 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
 
     @app.post("/holds/{hold_id}/read-back", response_model=None)
     def record_read_back(  # pyright: ignore[reportUnusedFunction]
-        hold_id: RowId, session: SessionDep, idempotency_key: IdempotencyKey
+        hold_id: RowId,
+        session: SessionDep,
+        idempotency_key: IdempotencyKey,
+        body: IdentityIn | None = None,
     ) -> JSONResponse:
         def work() -> tuple[int, BaseModel]:
-            return 200, hold_out(booking.record_read_back(session, hold_id, clock()))
+            identity = None if body is None else (body.patient_name, body.patient_phone)
+            return 200, hold_out(booking.record_read_back(session, hold_id, identity, clock()))
 
+        payload = {} if body is None else body.model_dump()
         return run_idempotent(
-            session, idempotency_key, f"POST /holds/{hold_id}/read-back", {}, work
+            session, idempotency_key, f"POST /holds/{hold_id}/read-back", payload, work
         )
 
     @app.post("/holds/{hold_id}/confirm", status_code=201, response_model=None)

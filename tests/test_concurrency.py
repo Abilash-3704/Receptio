@@ -16,6 +16,7 @@ from tests.support import FakeClock, confirm, held, new_key, place_hold, read_ba
 from tests.test_confirm_cancel_reschedule import (
     booked,
     confirm_reschedule,
+    read_back_reschedule,
     reschedule,
     status_of,
 )
@@ -156,10 +157,13 @@ def test_concurrent_reschedules_of_one_appointment_confirm_exactly_one(
             ).json()["id"]
             for slot in (f"2026-11-0{3 + k} {10 + n}:00" for k in range(3))
         ]
+        patient = f"Patient {chr(ord('A') + n)}"
         for hold_id in holds:
-            read_back(backend, hold_id)
+            read_back_reschedule(backend, hold_id, name=patient)
 
-        responses = race([lambda h=h: confirm_reschedule(backend, h) for h in holds])
+        responses = race(
+            [lambda h=h: confirm_reschedule(backend, h, name=patient) for h in holds]
+        )
 
         assert codes(responses) == [201, 409, 409], start
         assert (

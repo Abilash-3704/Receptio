@@ -138,8 +138,11 @@ def _require_live_hold(hold: AppointmentRecord, now: datetime) -> None:
         raise reject(409, "the Hold has expired: check Availability again before confirming")
 
 
-def record_read_back(session: Session, hold_id: int, now: datetime) -> AppointmentRecord:
-    hold = _lock_hold(session, hold_id)
+def record_read_back(
+    session: Session, hold_id: int, identity: tuple[str, str] | None, now: datetime
+) -> AppointmentRecord:
+    """Record the Caller's yes. A reschedule Hold needs its Patient's identity, as for confirm."""
+    hold = _lock_hold_for(session, hold_id, identity)
     _require_live_hold(hold, now)
     hold.read_back_at = now
     session.flush()
