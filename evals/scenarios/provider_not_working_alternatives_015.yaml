@@ -1,0 +1,29 @@
+id: provider_not_working_alternatives_015
+description: "No Availability with the Provider asked for: Dr. Shetty does not work Saturdays, so the agent says so and offers other Providers' times instead of inventing his"
+persona: patient
+caller_goal: "You want a check-up with Dr. Shetty on Saturday. If he is not working, take the first alternative offered. You are Rohan Das, phone +91 98450 33333. Agree to the read-back."
+turns:
+  - "A check-up with Dr. Shetty on Saturday please"
+  - "Then the first one is fine. Rohan Das, +91 98450 33333"
+  - "Yes, that's right"
+agent_script:
+  - tool: check_availability
+    args: {service: Check-up, when: Saturday, provider: Shetty}
+  - say: "Dr. Shetty isn't in on Saturday. I can do {offered[0]}, {offered[1]} or {offered[2]} with another dentist."
+  - tool: record_patient
+    args: {name: Rohan Das, phone: "+91 98450 33333"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked."
+expected:
+  final_state:
+    appointment_confirmed: true
+    appointment_date: "2026-11-07"
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+    - offered_outside_clinic_hours
+  max_turns: 3

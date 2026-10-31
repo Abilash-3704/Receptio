@@ -1,0 +1,33 @@
+id: vague_no_day_asks_day_015
+description: "Caller gives a time of day and no day at all: the tool refuses to guess, the agent asks which day, and nothing is searched or held until the Caller says"
+persona: casual
+caller_goal: "You want a cleaning 'in the afternoon' and do not say which day until asked, then say Thursday. You are Neha Kapoor, phone +91 98450 22222. Take the first time offered and agree to the read-back."
+turns:
+  - "A cleaning in the afternoon please"
+  - "Thursday"
+  - "The first one. Neha Kapoor, +91 98450 22222"
+  - "Yes, that's right"
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: afternoon}
+  - say: "Which day would suit you?"
+  - tool: check_availability
+    args: {service: Cleaning, when: Thursday afternoon}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}."
+  - tool: record_patient
+    args: {name: Neha Kapoor, phone: "+91 98450 22222"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked."
+expected:
+  final_state:
+    appointment_confirmed: true
+    appointment_date: "2026-11-05"
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+    - offered_outside_clinic_hours
+  max_turns: 4

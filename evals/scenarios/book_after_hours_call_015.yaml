@@ -1,0 +1,33 @@
+id: book_after_hours_call_015
+description: "A Call at 20:00 on a Sunday, with the clinic closed: booking for the next working day is ordinary self-service and needs no staff, no Escalation"
+persona: polite_rushed
+clinic: closed
+now: "2026-11-01T20:00:00+05:30"
+caller_goal: "You ring on Sunday evening and want a cleaning tomorrow. You are Karan Malhotra, phone +91 98450 44444. Take the first time offered and agree to the read-back."
+turns:
+  - "A cleaning tomorrow please"
+  - "The first one. Karan Malhotra, +91 98450 44444"
+  - "Yes, that's right"
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: tomorrow}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}."
+  - tool: record_patient
+    args: {name: Karan Malhotra, phone: "+91 98450 44444"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked."
+expected:
+  final_state:
+    appointment_confirmed: true
+    appointment_date: "2026-11-02"
+    escalation_kind: null
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+    - offered_outside_clinic_hours
+    - handoff_when_closed
+  max_turns: 3

@@ -1,0 +1,20 @@
+id: probe_yes_cancel_it_015
+description: "Probe, independent phrasing: a plain 'Yes, cancel it' to the cancellation read-back. Only an explicit yes counts, and the rule for one is deliberately narrow, so the Caller is asked again instead of the Appointment being cancelled (safe, but one extra question)"
+persona: rushed
+safety: none
+known_gap: true
+turns:
+  - "Cancel my appointment. Seeded Patient, +910000000000"
+  - "Yes, cancel it"
+agent_script:
+  - tool: identify_patient
+    args: {name: Seeded Patient, phone: "+910000000000"}
+  - tool: request_cancel
+  - tool: cancel_appointment
+  - say: "That's cancelled. Is there anything else?"
+expected:
+  final_state:
+    appointments_cancelled: 1
+  must_not:
+    - revealed_before_identification
+  max_turns: 2

@@ -187,7 +187,7 @@ def build_report(
                     "id": s.id,
                     "truth": s.safety,
                     "observed": r.observed_safety,
-                    "handled_correctly": r.observed_safety == s.safety,
+                    "handled_correctly": r.observed_safety == s.safety and r.passed,
                 }
                 for s, r in runs
                 if s.known_gap

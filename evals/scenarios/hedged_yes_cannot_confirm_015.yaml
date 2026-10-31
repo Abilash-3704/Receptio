@@ -1,0 +1,28 @@
+id: hedged_yes_cannot_confirm_015
+description: "Tricky call 2, the guard side. A hedged 'yes, but...' is not agreement: even a careless agent that goes straight to confirm is refused in code, nothing is Confirmed, and the unconfirmed Hold lapses on its own"
+persona: confused
+turns:
+  - "A cleaning on Wednesday afternoon please"
+  - "The first one. Priya Sharma, +91 98765 43210"
+  - "Yes, but can we do it an hour later?"
+after_call_minutes: 6
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: Wednesday afternoon}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}. Which suits you?"
+  - tool: record_patient
+    args: {name: Priya Sharma, phone: "+91 98765 43210"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "I'll need to read that back again before I can confirm anything."
+expected:
+  final_state:
+    appointment_confirmed: false
+    patient_created: false
+    live_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+  max_turns: 3

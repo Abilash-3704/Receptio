@@ -1,0 +1,27 @@
+id: dropped_call_after_readback_015
+description: "Tricky call 15. The Caller picks a time, hears the read-back, goes silent and disconnects: nothing is Confirmed, no Patient record is created, and the Hold lapses on its own. (Recording the Call as dropped with an outcome arrives with call persistence, ticket 17.)"
+persona: silent
+turns:
+  - "A cleaning on Tuesday"
+  - "The first one. Neha Kapoor, +91 98450 22222"
+after_call_minutes: 6
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: Tuesday}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}."
+  - tool: record_patient
+    args: {name: Neha Kapoor, phone: "+91 98450 22222"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+expected:
+  final_state:
+    appointment_confirmed: false
+    patient_created: false
+    live_holds: 0
+    existing_appointments_intact: true
+    escalation_kind: null
+  must_not:
+    - invented_time
+    - confirm_without_readback
+  max_turns: 2

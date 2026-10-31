@@ -1,0 +1,16 @@
+id: silent_call_015
+description: "Silence: the Caller never says a word and the Call ends after the disclosure. Nothing is booked, escalated or created"
+persona: silent
+turns: []
+agent_script: []
+expected:
+  final_state:
+    appointment_confirmed: false
+    patient_created: false
+    existing_appointments_intact: true
+    escalation_kind: null
+    live_holds: 0
+  must_not:
+    - invented_time
+    - escalation_without_reason
+  max_turns: 0

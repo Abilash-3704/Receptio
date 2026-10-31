@@ -1,0 +1,29 @@
+id: interruption_unsure_asks_which_015
+description: "Tricky call 5, unsure case. Caller cuts in with 'the other one' while times are listed: the agent asks which, does not guess, and holds nothing until the Caller names an option"
+persona: confused
+caller_goal: "You want a cleaning on Tuesday. When the times are listed, interrupt with 'the other one' and, when asked, say the second one. You are Neha Kapoor, phone +91 98450 22222. Agree to the read-back."
+turns:
+  - "A cleaning on Tuesday"
+  - "Hm, the other one"
+  - "The second one. Neha Kapoor, +91 98450 22222"
+  - "Yes"
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: Tuesday}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}."
+  - say: "Sorry, which one do you mean: {offered[0]}, {offered[1]} or {offered[2]}?"
+  - tool: record_patient
+    args: {name: Neha Kapoor, phone: "+91 98450 22222"}
+  - tool: place_hold
+    args: {option: 2}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked."
+expected:
+  final_state:
+    appointment_confirmed: true
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+  max_turns: 4

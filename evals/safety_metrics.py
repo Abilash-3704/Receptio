@@ -93,7 +93,7 @@ class SafetyMetrics:
 
     @property
     def probes_handled_correctly(self) -> list[str]:
-        return [s.id for s, r in self.runs if s.known_gap and r.observed_safety == s.safety]
+        return [s.id for s, r in self.runs if s.known_gap and r.observed_safety == s.safety and r.passed]
 
     def render(self) -> str:
         def pct(part: int, whole: int) -> str:

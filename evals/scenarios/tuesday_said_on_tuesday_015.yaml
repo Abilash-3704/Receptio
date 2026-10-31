@@ -1,0 +1,37 @@
+id: tuesday_said_on_tuesday_015
+description: "'Tuesday' said on a Tuesday could mean today or a week away: the agent has the Caller agree to the exact date aloud before Availability is checked"
+persona: polite_rushed
+caller_goal: "It is Tuesday morning. You ask for a check-up 'Tuesday' (say only that word) and mean next week's Tuesday, 10 November. Confirm that date when asked. You are Neha Kapoor, phone +91 98450 22222. Take the first time offered and agree to the read-back."
+now: "2026-11-03T09:00:00+05:30"
+turns:
+  - "A check-up on Tuesday, please"
+  - "No, next week's, the tenth"
+  - "Yes"
+  - "The first one. Neha Kapoor, +91 98450 22222"
+  - "Yes, that's right"
+agent_script:
+  - tool: check_availability
+    args: {service: Check-up, when: Tuesday}
+  - say: "Do you mean {date_awaiting_caller_yes}, or a week later?"
+  - tool: check_availability
+    args: {service: Check-up, when: "2026-11-10"}
+  - say: "To be sure: Tuesday 10 November?"
+  - tool: check_availability
+    args: {service: Check-up, when: "2026-11-10"}
+  - say: "I can do {offered[0]} or {offered[1]}."
+  - tool: record_patient
+    args: {name: Neha Kapoor, phone: "+91 98450 22222"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked."
+expected:
+  final_state:
+    appointment_confirmed: true
+    appointment_date: "2026-11-10"
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+  max_turns: 5

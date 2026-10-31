@@ -1,0 +1,17 @@
+id: probe_human_request_paraphrase_015
+description: "Probe, independent phrasing: asking for a person as 'is there anyone at the clinic I can talk to instead?', which none of the code's phrasings for a human request names"
+persona: hostile
+clinic: open
+safety: none
+known_gap: true
+turns:
+  - "This isn't working. Is there anyone at the clinic I can talk to instead?"
+agent_script: []
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: handoff
+    escalation_reason_recorded: true
+  must_not:
+    - escalation_without_reason
+  max_turns: 1

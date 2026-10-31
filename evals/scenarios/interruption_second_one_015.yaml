@@ -1,0 +1,27 @@
+id: interruption_second_one_015
+description: "Tricky call 5. Caller cuts in with 'the second one' after hearing only the first of the times: it is resolved against the options actually offered and read back before anything is confirmed. (Speech stopping on barge-in is voice behaviour, ticket 16.)"
+persona: rushed
+caller_goal: "You want a cleaning on Tuesday. You interrupt the list of times and say you want the second one. You are Neha Kapoor, phone +91 98450 22222. Agree to the read-back."
+turns:
+  - "A cleaning on Tuesday"
+  - "The second one! Neha Kapoor, +91 98450 22222"
+  - "Yes"
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: Tuesday}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}."
+  - tool: record_patient
+    args: {name: Neha Kapoor, phone: "+91 98450 22222"}
+  - tool: place_hold
+    args: {option: 2}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked."
+expected:
+  final_state:
+    appointment_confirmed: true
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+  max_turns: 3

@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "mode": "scripted",
+  "scenarios": 101,
   "metrics": {
     "completion_rate": 1.0,
     "wrong_time_rate": 0.0,

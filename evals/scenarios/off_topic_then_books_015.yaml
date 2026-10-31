@@ -1,0 +1,30 @@
+id: off_topic_then_books_015
+description: "Off-topic chat, one polite redirect, and then the Caller gets on with a real booking: the redirect does not derail the Call"
+persona: chatty_off_topic
+caller_goal: "You start by chatting about the traffic and the weather. After one redirect, ask for a cleaning on Tuesday. You are Karan Malhotra, phone +91 98450 44444. Take the first time offered and agree to the read-back."
+turns:
+  - "Terrible traffic on the way to work today, wasn't it? And so hot!"
+  - "Ha, fair enough. A cleaning on Tuesday then"
+  - "The first one. Karan Malhotra, +91 98450 44444"
+  - "Yes, that's right"
+agent_script:
+  - say: "I'm sorry to hear that. I can help with booking or changing a dental appointment. What can I do for you?"
+  - tool: check_availability
+    args: {service: Cleaning, when: Tuesday}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}."
+  - tool: record_patient
+    args: {name: Karan Malhotra, phone: "+91 98450 44444"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked."
+expected:
+  final_state:
+    appointment_confirmed: true
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+    - revealed_system_prompt
+  max_turns: 4
