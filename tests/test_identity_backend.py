@@ -5,7 +5,7 @@ match, and a failed match must look the same whether or not the Appointment exis
 import httpx
 import pytest
 
-from tests.support import availability, local, new_key
+from tests.support import availability, confirm, held, local, new_key, read_back
 from tests.test_confirm_cancel_reschedule import booked, cancel, reschedule, status_of
 
 ASHA = {"name": "Asha Menon", "phone": "+91 98450 12345"}
@@ -122,3 +122,34 @@ def test_a_failed_lookup_is_the_same_for_a_wrong_phone_and_an_unknown_patient(
     assert wrong_phone.status_code == 403
     assert (unknown.status_code, unknown.json()) == (403, wrong_phone.json())
     assert "Filling" not in wrong_phone.text and "14:00" not in wrong_phone.text
+
+
+def test_an_appointment_id_alone_reads_nothing(backend: httpx.Client) -> None:
+    """The Patient's name is only ever returned for a matching name and phone, never for an id."""
+    hold_id = held(backend, "Cleaning", "Meera Nair", "2026-11-03 10:00")
+    read_back(backend, hold_id)
+    appointment_id = confirm(backend, hold_id).json()["id"]
+
+    response = backend.get(f"/appointments/{appointment_id}")
+
+    assert response.status_code in (404, 405)
+    assert "Asha" not in response.text
+
+
+def test_reading_an_appointment_needs_its_patients_identity_and_fails_like_not_found(
+    backend: httpx.Client,
+) -> None:
+    mine = booked(backend, "Filling", "Dr. Anita Rao", "2026-11-02 14:00", **ASHA)
+    hold_id = held(backend, "Cleaning", "Meera Nair", "2026-11-03 10:00")
+
+    def read(appointment_id: int, who: dict[str, str]) -> httpx.Response:
+        return backend.post(
+            f"/appointments/{appointment_id}/read",
+            json={"patient_name": who["name"], "patient_phone": who["phone"]},
+        )
+
+    forged = read(mine["id"], RAVI)
+    assert forged.status_code == 403 and "Asha" not in forged.text
+    for other in (read(9999, ASHA), read(hold_id, ASHA)):
+        assert (other.status_code, other.json()) == (403, forged.json())
+    assert read(mine["id"], ASHA).json()["patient_name"] == "Asha Menon"

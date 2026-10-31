@@ -12,7 +12,7 @@ from agent.llm import Say, UseTool
 from agent.safety import EMERGENCY_SCRIPT, EMERGENCY_SCRIPT_VERSION, URGENT_HANDOFF_SPEECH
 from agent.scripted_llm import ScriptedLLM
 from agent.text_mode import TextCall, open_text_call
-from tests.support import IST, availability, local
+from tests.support import IST, availability, confirm, local
 
 
 def escalations(backend: httpx.Client) -> list[dict[str, Any]]:
@@ -138,7 +138,7 @@ def test_an_emergency_cannot_be_confirmed_after_the_read_back_was_agreed(
 
     assert heard == [EMERGENCY_SCRIPT]
     assert backend.get("/escalations").json()
-    assert backend.get(f"/appointments/{hold.id}").json()["status"] == "released"
+    assert confirm(backend, hold.id).status_code == 409  # released: it can no longer be confirmed
 
 
 def test_an_urgent_case_gets_an_escalation_and_no_112_script(backend: httpx.Client) -> None:

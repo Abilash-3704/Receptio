@@ -79,8 +79,19 @@ def cancel(
     )
 
 
-def status_of(backend: httpx.Client, appointment_id: int) -> str:
-    return backend.get(f"/appointments/{appointment_id}").json()["status"]
+def status_of(
+    backend: httpx.Client,
+    appointment_id: int,
+    name: str = "Asha Menon",
+    phone: str = "+91 98450 12345",
+) -> str:
+    """The Appointment's status, read as its own Patient (an id alone reads nothing)."""
+    response = backend.post(
+        f"/appointments/{appointment_id}/read",
+        json={"patient_name": name, "patient_phone": phone},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["status"]
 
 
 def test_a_write_without_an_idempotency_key_is_rejected(backend: httpx.Client) -> None:
@@ -118,8 +129,11 @@ def test_confirm_with_a_read_back_creates_the_appointment_for_a_new_patient(
     assert appointment["status"] == "confirmed"
     assert appointment["patient_name"] == "asha Menon"
     assert appointment["start"] == "2026-11-02T08:30:00Z"
-    fetched = backend.get(f"/appointments/{appointment['id']}").json()
-    assert fetched == appointment
+    read = backend.post(
+        f"/appointments/{appointment['id']}/read",
+        json={"patient_name": "Asha Menon", "patient_phone": "+91 98450 12345"},
+    )
+    assert read.json() == appointment
     # The confirmed time is no longer available to anyone.
     assert place_hold(backend, "Filling", "Dr. Anita Rao", "2026-11-02 14:00").status_code == 409
 
@@ -309,7 +323,7 @@ def test_a_failed_reschedule_leaves_the_original_confirmed(
     assert confirm_reschedule(backend, late["id"]).status_code == 409
 
     assert status_of(backend, original["id"]) == "confirmed"
-    assert status_of(backend, other["id"]) == "cancelled"
+    assert status_of(backend, other["id"], name="Ravi Kumar") == "cancelled"
     assert reschedule(backend, 9999, "Dr. Anita Rao", "2026-11-02 16:00").status_code == 403
     cancelled = reschedule(
         backend, other["id"], "Dr. Anita Rao", "2026-11-02 16:00", name="Ravi Kumar"

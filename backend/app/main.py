@@ -349,13 +349,15 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
             session, idempotency_key, f"POST /holds/{hold_id}/confirm", payload, work
         )
 
-    @app.get("/appointments/{appointment_id}")
+    @app.post("/appointments/{appointment_id}/read")
     def read_appointment(  # pyright: ignore[reportUnusedFunction]
-        appointment_id: RowId, session: SessionDep
+        appointment_id: RowId, body: IdentityIn, session: SessionDep
     ) -> AppointmentOut:
-        record = session.get(AppointmentRecord, appointment_id)
-        if record is None:
-            raise HTTPException(status_code=404, detail="appointment not found")
+        """An Appointment, only for the Patient whose full name AND phone match. An unknown id, a
+        Hold and someone else's Appointment all fail with the same 403 as a wrong identity."""
+        record = booking.owned_appointment(
+            session, appointment_id, (body.patient_name, body.patient_phone)
+        )
         return appointment_out(session, record)
 
     @app.post("/appointments/lookup")
