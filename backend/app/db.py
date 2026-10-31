@@ -135,6 +135,19 @@ class AppointmentRecord(Base):
     replaces_id: Mapped[int | None] = mapped_column(ForeignKey("appointments.id"), default=None)
 
 
+class ConfirmationMessage(Base):
+    """The mocked message "sent" to the Patient's phone when an Appointment is Confirmed. Nothing
+    is delivered; this record is what the screen and the dashboard show. One per Appointment."""
+
+    __tablename__ = "confirmation_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    appointment_id: Mapped[int] = mapped_column(ForeignKey("appointments.id"), unique=True)
+    to_phone: Mapped[str] = mapped_column(String(20))
+    body: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
 class CallRecord(Base):
     __tablename__ = "calls"
 

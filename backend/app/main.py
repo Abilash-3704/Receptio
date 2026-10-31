@@ -15,6 +15,7 @@ from backend.app.config import BackendSettings
 from backend.app.db import (
     AppointmentRecord,
     CallRecord,
+    ConfirmationMessage,
     Patient,
     Provider,
     Service,
@@ -87,6 +88,14 @@ class AppointmentOut(BaseModel):
     replaces_id: int | None
 
 
+class ConfirmationMessageOut(BaseModel):
+    id: int
+    appointment_id: int
+    to_phone: str
+    body: str
+    created_at: datetime
+
+
 def aware(value: datetime) -> datetime:
     """A datetime without an offset is clinic local time (Asia/Kolkata)."""
     return value.replace(tzinfo=CLINIC_TZ) if value.tzinfo is None else value
@@ -112,6 +121,16 @@ def _out(record: CallRecord) -> CallOut:
         started_at=record.started_at,
         ended_at=record.ended_at,
         transcript=[TurnIn(**t) for t in record.transcript],
+    )
+
+
+def message_out(message: ConfirmationMessage) -> ConfirmationMessageOut:
+    return ConfirmationMessageOut(
+        id=message.id,
+        appointment_id=message.appointment_id,
+        to_phone=message.to_phone,
+        body=message.body,
+        created_at=message.created_at,
     )
 
 
@@ -309,6 +328,37 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
             body.model_dump(mode="json"),
             work,
         )
+
+    @app.post(
+        "/appointments/{appointment_id}/confirmation-message",
+        status_code=201,
+        response_model=None,
+    )
+    def send_confirmation_message(  # pyright: ignore[reportUnusedFunction]
+        appointment_id: int, session: SessionDep, idempotency_key: IdempotencyKey
+    ) -> JSONResponse:
+        """Record the mocked Confirmation Message for a Confirmed Appointment."""
+
+        def work() -> tuple[int, BaseModel]:
+            message = booking.record_confirmation_message(session, appointment_id, clock())
+            return 201, message_out(message)
+
+        return run_idempotent(
+            session,
+            idempotency_key,
+            f"POST /appointments/{appointment_id}/confirmation-message",
+            {},
+            work,
+        )
+
+    @app.get("/confirmation-messages")
+    def list_confirmation_messages(  # pyright: ignore[reportUnusedFunction]
+        session: SessionDep, appointment_id: int | None = None
+    ) -> list[ConfirmationMessageOut]:
+        query = select(ConfirmationMessage).order_by(ConfirmationMessage.id)
+        if appointment_id is not None:
+            query = query.where(ConfirmationMessage.appointment_id == appointment_id)
+        return [message_out(m) for m in session.scalars(query)]
 
     @app.post("/calls", status_code=201)
     def open_call(session: SessionDep) -> CallOut:  # pyright: ignore[reportUnusedFunction]

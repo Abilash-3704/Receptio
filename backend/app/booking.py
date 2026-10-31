@@ -15,7 +15,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.app.db import AppointmentRecord, Patient, Provider, Service
+from backend.app.clock import CLINIC_TZ
+from backend.app.db import (
+    AppointmentRecord,
+    ConfirmationMessage,
+    Patient,
+    Provider,
+    Service,
+)
 from backend.app.scheduling import HOLD_DURATION, blocking_appointments, find_availability
 
 
@@ -191,3 +198,34 @@ def start_reschedule(session: Session, appointment_id: int) -> AppointmentRecord
     if original.status != "confirmed":
         raise reject(409, "only a confirmed Appointment can be rescheduled")
     return original
+
+
+def record_confirmation_message(
+    session: Session, appointment_id: int, now: datetime
+) -> ConfirmationMessage:
+    """Mocked send: only a Confirmed Appointment gets one, and only one per Appointment."""
+    appointment = session.get(AppointmentRecord, appointment_id)
+    if appointment is None:
+        raise reject(404, "appointment not found")
+    if appointment.status != "confirmed" or appointment.patient_id is None:
+        raise reject(409, "only a Confirmed Appointment gets a Confirmation Message")
+    existing = session.scalars(
+        select(ConfirmationMessage).where(ConfirmationMessage.appointment_id == appointment_id)
+    ).first()
+    if existing is not None:
+        return existing
+    patient = session.get(Patient, appointment.patient_id)
+    service = session.get(Service, appointment.service_id)
+    provider = session.get(Provider, appointment.provider_id)
+    assert patient is not None and service is not None and provider is not None
+    when = appointment.starts_at.astimezone(CLINIC_TZ)
+    body = (
+        f"Hi {patient.full_name}, your {service.name} with {provider.name} is confirmed for "
+        f"{when:%A %d %B %Y} at {when:%I:%M %p}."
+    )
+    message = ConfirmationMessage(
+        appointment_id=appointment.id, to_phone=patient.phone, body=body, created_at=now
+    )
+    session.add(message)
+    session.flush()
+    return message
