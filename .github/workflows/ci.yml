@@ -32,8 +32,6 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.13.6"
-      # The `llm` extra so pyright can see the anthropic SDK that agent/anthropic_llm.py imports.
-      # Never `voice`: the two extras conflict. No test calls the real API.
       - run: uv sync --frozen
       - run: uv run ruff format --check agent backend tests
       - run: uv run ruff check agent backend tests
