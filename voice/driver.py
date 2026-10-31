@@ -12,7 +12,7 @@ the timing record logs is when the first sentence of the reply became available.
 import asyncio
 import re
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 from agent.text_mode import TextCall
 from voice.timing import TurnTimings
@@ -51,5 +51,32 @@ class VoiceTurnDriver:
                     first = False
                 yield sentence
 
+    @property
+    def expired(self) -> bool:
+        return self._call.expired
+
+    def time_check(self) -> list[str]:
+        return self._call.time_check()
+
     def end(self) -> None:
         self._call.end()
+
+
+async def watch_call_limits(
+    driver: VoiceTurnDriver,
+    speak: Callable[[str], Awaitable[None]],
+    close: Callable[[], Awaitable[None]],
+    poll_seconds: float = 1.0,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    stop: asyncio.Event | None = None,
+) -> None:
+    """Speak the duration cap's warning and close for a Caller who says nothing, then end the
+    session. `speak` must return once the speech has been played out, so the close is heard
+    before the session ends. Stops quietly if `stop` is set (the Call ended another way)."""
+    while stop is None or not stop.is_set():
+        for utterance in await asyncio.to_thread(driver.time_check):
+            await speak(utterance)
+        if driver.expired:
+            await close()
+            return
+        await sleep(poll_seconds)

@@ -5,6 +5,9 @@ agent forces a Callback Request (see `forced_kind`)."""
 
 import re
 
+from agent.call_limits import DURATION_REASON
+from agent.recording import RECORDING_OBJECTION_REASON
+
 # Failures of one step (one tool) before the agent stops trying and escalates.
 MAX_FAILURES_PER_STEP = 2
 # Asks for the Caller's number before giving up and recording the Callback Request without one.
@@ -20,10 +23,16 @@ def failed_twice_reason(step: str) -> str:
 
 
 def forced_kind(reason: str) -> str | None:
-    """The two cases the spec sends to a Callback Request even during Clinic Hours: a request
-    sooner than the booking window allows, and failed identification. Everything else (a human
-    asked for, Emergency, Urgent Case, other failures) leaves the kind to the backend."""
-    if reason in (TOO_SOON_REASON, failed_twice_reason(IDENTIFICATION_STEP)):
+    """The cases that always mean a Callback Request, even during Clinic Hours: a request sooner
+    than the booking window allows, failed identification, the Call reaching its time limit, and
+    an objection to recording (the Call cannot go on). Everything else (a human asked for,
+    Emergency, Urgent Case, other failures) leaves the kind to the backend."""
+    if reason in (
+        TOO_SOON_REASON,
+        failed_twice_reason(IDENTIFICATION_STEP),
+        DURATION_REASON,
+        RECORDING_OBJECTION_REASON,
+    ):
         return "callback_request"
     return None
 

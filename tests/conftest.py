@@ -1,6 +1,7 @@
 import os
-from collections.abc import Iterator
-from typing import cast
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -21,21 +22,39 @@ def clock() -> FakeClock:
     return FakeClock(START_OF_TEST)
 
 
+BackendFactory = Callable[..., httpx.Client]
+
+
 @pytest.fixture
-def backend(clock: FakeClock) -> Iterator[httpx.Client]:
-    if POSTGRES_URL:
-        engine = create_engine(POSTGRES_URL)
-        with engine.begin() as conn:
-            conn.execute(text("DROP SCHEMA public CASCADE"))
-            conn.execute(text("CREATE SCHEMA public"))
-        engine.dispose()
-    settings = BackendSettings(
-        database_url=POSTGRES_URL or "sqlite+pysqlite:///:memory:", demo_controls_enabled=True
-    )
-    with TestClient(create_app(settings, clock=clock), base_url="http://backend") as client:
+def backend_factory(clock: FakeClock) -> Iterator[BackendFactory]:
+    """Start a backend with settings overrides (a fresh schema on Postgres each time)."""
+    stack = ExitStack()
+
+    def make(**overrides: Any) -> httpx.Client:
+        if POSTGRES_URL:
+            engine = create_engine(POSTGRES_URL)
+            with engine.begin() as conn:
+                conn.execute(text("DROP SCHEMA public CASCADE"))
+                conn.execute(text("CREATE SCHEMA public"))
+            engine.dispose()
+        settings = BackendSettings(
+            database_url=POSTGRES_URL or "sqlite+pysqlite:///:memory:",
+            **{"demo_controls_enabled": True, **overrides},
+        )
+        client = stack.enter_context(
+            TestClient(create_app(settings, clock=clock), base_url="http://backend")
+        )
         # starlette's TestClient subclasses httpx2.Client in this dependency set, not
         # httpx.Client. It is call-compatible, so the agent code (typed on httpx) runs unchanged.
-        yield cast(httpx.Client, client)
+        return cast(httpx.Client, client)
+
+    with stack:
+        yield make
+
+
+@pytest.fixture
+def backend(backend_factory: BackendFactory) -> httpx.Client:
+    return backend_factory()
 
 
 @pytest.fixture

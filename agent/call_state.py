@@ -70,6 +70,9 @@ class CallState:
     # Why a Callback Request was offered (the request was sooner than the booking window allows).
     # Taken up only if the Caller's next answer is a plain yes.
     callback_offer: str | None = None
+    # The duration cap (agent/call_limits.py): the warning was given / the Call was closed.
+    limit_warned: bool = False
+    limit_reached: bool = False
     awaiting_read_back_answer: bool = False
     read_back_agreed: bool = False
     appointment_id: int | None = None

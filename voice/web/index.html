@@ -16,6 +16,8 @@
   button.stop { background: var(--stop); }
   button:disabled { opacity: .5; cursor: default; }
   #status { color: var(--muted); margin: 1rem 0; }
+  #notice { border: 1px solid var(--stop); color: var(--stop); border-radius: .5rem;
+            padding: .6rem .9rem; margin: 1rem 0; }
   #log { list-style: none; padding: 0; }
   #log li { margin: .4rem 0; }
   .agent { color: var(--accent); }
@@ -28,6 +30,7 @@
   <p>This is a demo of an AI receptionist for a fictional dental clinic. The agent will say
      it is an AI and that the call may be recorded. Allow microphone access when asked.</p>
   <button id="toggle">Start call</button>
+  <p id="notice" role="alert" hidden></p>
   <div id="status" role="status">Not connected.</div>
   <ul id="log" aria-live="polite"></ul>
   <small>Speak naturally; you can interrupt the agent at any time.</small>
@@ -40,6 +43,7 @@
   const button = document.getElementById("toggle");
   const status = document.getElementById("status");
   const log = document.getElementById("log");
+  const notice = document.getElementById("notice");
   let room = null;
   let audioEls = [];
 
@@ -50,7 +54,20 @@
     setStatus("Connecting...");
     try {
       const res = await fetch("/token", { method: "POST" });
-      if (!res.ok) throw new Error("token endpoint returned " + res.status);
+      if (res.status === 429) {
+        // A cap was hit (this visitor's daily Calls, this network's, or the whole demo's).
+        // Starting stays disabled until the page is reloaded, and the reason is shown.
+        const body = await res.json().catch(() => ({}));
+        notice.textContent = body.message || "The demo is at its daily limit. Please come back tomorrow.";
+        notice.hidden = false;
+        button.disabled = true;
+        setStatus("Not connected.");
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "token endpoint returned " + res.status);
+      }
       const { url, token } = await res.json();
       room = new Room({ audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true } });
       room.on(RoomEvent.TrackSubscribed, (track) => {
@@ -70,7 +87,8 @@
           log.appendChild(li);
         }
       });
-      room.on(RoomEvent.Disconnected, cleanup);
+      // Also fires when the agent ends the Call at the time limit, after saying so.
+      room.on(RoomEvent.Disconnected, () => { cleanup(); setStatus("Call ended."); });
       await room.connect(url, token);
       await room.localParticipant.setMicrophoneEnabled(true);
       await room.startAudio();
