@@ -1,6 +1,7 @@
 """Escalation, decided in code and never by the LLM: when the Caller asks for a human, or the same
 step fails twice, the state machine passes the Call to clinic staff. The backend alone decides
-whether that is a Handoff (during Clinic Hours) or a Callback Request (otherwise)."""
+whether that is a Handoff (during Clinic Hours) or a Callback Request (otherwise), unless the
+agent forces a Callback Request (see `forced_kind`)."""
 
 import re
 
@@ -10,6 +11,22 @@ MAX_FAILURES_PER_STEP = 2
 MAX_NUMBER_ASKS = 2
 
 HUMAN_REASON = "caller asked for a human"
+TOO_SOON_REASON = "wanted an Appointment sooner than 2 hours ahead"
+IDENTIFICATION_STEP = "identify_patient"
+
+
+def failed_twice_reason(step: str) -> str:
+    return f"{step} failed twice in a row"
+
+
+def forced_kind(reason: str) -> str | None:
+    """The two cases the spec sends to a Callback Request even during Clinic Hours: a request
+    sooner than the booking window allows, and failed identification. Everything else (a human
+    asked for, Emergency, Urgent Case, other failures) leaves the kind to the backend."""
+    if reason in (TOO_SOON_REASON, failed_twice_reason(IDENTIFICATION_STEP)):
+        return "callback_request"
+    return None
+
 
 HANDOFF_SPEECH = "Of course. I'm connecting you to a member of our staff now. Please hold."
 ASK_NUMBER = (

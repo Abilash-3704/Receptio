@@ -128,6 +128,9 @@ class ClinicOverrideIn(BaseModel):
 class EscalationIn(BaseModel):
     reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
     caller_phone: str | None = None
+    # Normally absent: the backend decides from Clinic Hours. A Callback Request can be forced
+    # (a request too soon to book, failed identification); a Handoff only while open.
+    kind: Literal["handoff", "callback_request"] | None = None
 
 
 class EscalationOut(BaseModel):
@@ -496,14 +499,19 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         call_id: int, body: EscalationIn, session: SessionDep, idempotency_key: IdempotencyKey
     ) -> JSONResponse:
         """Pass the Call to staff. The backend decides the kind: a Handoff during Clinic Hours,
-        otherwise a Callback Request."""
+        otherwise a Callback Request. A Callback Request may be asked for at any time; a Handoff
+        never while the clinic is closed."""
 
         def work() -> tuple[int, BaseModel]:
             get_call(session, call_id)
+            is_open = clinic_is_open(session)
+            if body.kind == "handoff" and not is_open:
+                raise HTTPException(status_code=422, detail="no Handoff while the clinic is closed")
+            kind = body.kind or ("handoff" if is_open else "callback_request")
             phone = None if not body.caller_phone else booking.normalise_phone(body.caller_phone)
             record = EscalationRecord(
                 call_id=call_id,
-                kind="handoff" if clinic_is_open(session) else "callback_request",
+                kind=kind,
                 reason=body.reason,
                 caller_phone=phone,
                 created_at=clock(),

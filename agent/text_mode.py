@@ -20,6 +20,8 @@ from agent.escalation import (
     MAX_FAILURES_PER_STEP,
     MAX_NUMBER_ASKS,
     asks_for_human,
+    failed_twice_reason,
+    forced_kind,
     phone_in,
 )
 from agent.faq import (
@@ -174,7 +176,7 @@ class TextCall:
             )
             failures = self._state.record_outcome(step.name, result.ok)
             if failures >= MAX_FAILURES_PER_STEP:
-                return spoken + self._escalate(f"{step.name} failed twice in a row")
+                return spoken + self._escalate(failed_twice_reason(step.name))
             if result.speak is not None:
                 self._speak(result.speak, spoken)
                 return spoken
@@ -208,12 +210,13 @@ class TextCall:
         self, reason: str, phone: str | None = None, key: str = "escalation"
     ) -> list[str]:
         """Pass the Call to staff. Handoff or Callback Request is the backend's decision from
-        Clinic Hours; a Callback Request needs a number, so ask if the Call has none yet."""
+        Clinic Hours, except for the reasons that always mean a Callback Request (too soon to book,
+        failed identification). A Callback Request needs a number, so ask if the Call has none."""
         spoken: list[str] = []
         state = self._state
         phone = state.patient_phone or phone
         is_open: bool = self._backend.get("/clinic-status").json()["open"]
-        if not is_open and phone is None:
+        if (not is_open or forced_kind(reason) is not None) and phone is None:
             state.callback_reason = reason
             state.number_asks = 1
             self._speak(ASK_NUMBER, spoken)
@@ -238,7 +241,7 @@ class TextCall:
         response = self._backend.post(
             f"/calls/{self.call_id}/escalations",
             headers={"Idempotency-Key": f"call{self.call_id}-{key}"},
-            json={"reason": reason, "caller_phone": phone},
+            json={"reason": reason, "caller_phone": phone, "kind": forced_kind(reason)},
         )
         response.raise_for_status()
         self._state.escalated = True

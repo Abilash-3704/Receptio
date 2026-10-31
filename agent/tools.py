@@ -10,12 +10,11 @@ import httpx
 
 from agent.availability_search import AvailabilitySearch
 from agent.call_state import CallState, HoldInfo, KnownAppointment
+from agent.escalation import TOO_SOON_REASON
 from agent.faq import NO_ANSWER_REASON, NO_ANSWER_SPEECH
 from agent.llm import ToolSpec
 from agent.times import resolve, say_date
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
-
-TOO_SOON_REASON = "wanted an Appointment sooner than 2 hours ahead"
 
 TOOL_SPECS = [
     ToolSpec(

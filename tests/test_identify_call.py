@@ -83,6 +83,22 @@ def test_two_failed_identifications_lead_to_a_callback_request(backend: httpx.Cl
     assert [a["id"] for a in asha_appointments(backend)] == [appointment["id"]]
 
 
+def test_two_failed_identifications_during_clinic_hours_are_still_a_callback_request(
+    backend: httpx.Client,
+) -> None:
+    book_filling(backend)
+    backend.put("/demo/clinic-override", json={"mode": "open"})
+    call = call_with(backend, [BAD_PHONE, Say("That doesn't match. Once more?"), BAD_PHONE])
+
+    call.hear("Cancel my appointment, Asha Menon, 98450 99999")
+    call.hear("It's 98450 99999")
+    heard = call.hear("+91 98450 12347")  # the number to call back
+
+    [stored] = escalations(backend)
+    assert (stored["kind"], stored["caller_phone"]) == ("callback_request", "+919845012347")
+    assert "call you back" in heard[-1]
+
+
 def test_a_cancel_is_read_back_and_only_happens_after_an_explicit_yes(
     backend: httpx.Client,
 ) -> None:
