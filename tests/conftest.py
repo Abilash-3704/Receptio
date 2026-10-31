@@ -1,6 +1,6 @@
 import os
-from collections.abc import Iterator
-from typing import cast
+from collections.abc import Callable, Iterator
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, text
 
 from backend.app.config import BackendSettings
 from backend.app.main import create_app
+from backend.app.trace import load_trace
 from tests.support import START_OF_TEST, FakeClock
 
 # Set to a Postgres URL to run the whole backend suite (and the concurrency tests) against a
@@ -43,3 +44,16 @@ def postgres_backend(backend: httpx.Client) -> httpx.Client:
     if not POSTGRES_URL:
         pytest.skip("concurrency needs a real Postgres: set TEST_DATABASE_URL")
     return backend
+
+
+@pytest.fixture
+def trace(backend: httpx.Client) -> Callable[[int], dict[str, Any]]:
+    """Read a stored Call back the way the trace viewer and the eval harness do: straight from the
+    database through `backend.app.trace`, not through any HTTP endpoint."""
+    factory = cast(Any, backend).app.state.session_factory
+
+    def read(call_id: int) -> dict[str, Any]:
+        with factory() as session:
+            return load_trace(session, call_id, cast(Any, backend).app.state.prices)
+
+    return read

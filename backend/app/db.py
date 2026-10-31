@@ -3,6 +3,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Dialect,
     Engine,
@@ -169,7 +170,81 @@ class CallRecord(Base):
     status: Mapped[str] = mapped_column(String(16), default="open")
     started_at: Mapped[datetime] = mapped_column(UtcDateTime)
     ended_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
-    transcript: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list)
+    mode: Mapped[str] = mapped_column(String(8), default="text")  # text or voice
+    # How the Call ended: completed, escalated or dropped. None while open. The reason is the
+    # Escalation's reason, or why the Call counts as dropped.
+    outcome: Mapped[str | None] = mapped_column(String(16), default=None)
+    outcome_reason: Mapped[str | None] = mapped_column(String(200), default=None)
+    # Cost of the whole Call, written when it ends (backend/app/cost.py): every component says
+    # whether it was measured or estimated, and whether its price is a placeholder.
+    cost: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+
+
+class CallTurn(Base):
+    """One thing said in a Call, in order. The transcript is these rows. Personal data (names,
+    phone numbers) is stored here in full and nowhere else but the other trace tables."""
+
+    __tablename__ = "call_turns"
+    __table_args__ = (UniqueConstraint("call_id", "seq"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    call_id: Mapped[int] = mapped_column(ForeignKey("calls.id"), index=True)
+    seq: Mapped[int]  # 1-based position in the Call
+    speaker: Mapped[str] = mapped_column(String(8))  # caller or agent
+    text: Mapped[str] = mapped_column(String(2000))
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
+class CallToolCall(Base):
+    """A tool the agent ran, with what it was asked and what came back, under the Caller turn
+    that caused it."""
+
+    __tablename__ = "call_tool_calls"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    call_id: Mapped[int] = mapped_column(ForeignKey("calls.id"), index=True)
+    turn_seq: Mapped[int]  # seq of the Caller turn being answered
+    name: Mapped[str] = mapped_column(String(40))
+    args: Mapped[dict[str, Any]] = mapped_column(JSON)
+    ok: Mapped[bool] = mapped_column(Boolean)
+    refused: Mapped[bool] = mapped_column(Boolean)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
+class CallLlmCall(Base):
+    """One request to the LLM, with the token usage the provider reported for it. Cost is
+    tokens times the configured price for the model; null when the model has no price."""
+
+    __tablename__ = "call_llm_calls"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    call_id: Mapped[int] = mapped_column(ForeignKey("calls.id"), index=True)
+    turn_seq: Mapped[int]
+    model: Mapped[str] = mapped_column(String(80))
+    input_tokens: Mapped[int]
+    output_tokens: Mapped[int]
+    duration_ms: Mapped[int | None] = mapped_column(default=None)
+    cost_usd: Mapped[float | None] = mapped_column(default=None)
+    price_placeholder: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
+class CallTurnTiming(Base):
+    """Voice latency of one Caller turn, as the pipeline measured it (voice/timing.py). Null
+    where a moment was not seen. `caller_turn_seq` links it to the transcript when known."""
+
+    __tablename__ = "call_turn_timings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    call_id: Mapped[int] = mapped_column(ForeignKey("calls.id"), index=True)
+    caller_turn_seq: Mapped[int | None] = mapped_column(default=None)
+    asr_final_ms: Mapped[int | None] = mapped_column(default=None)
+    llm_first_token_ms: Mapped[int | None] = mapped_column(default=None)
+    tts_first_audio_ms: Mapped[int | None] = mapped_column(default=None)
+    total_ms: Mapped[int | None] = mapped_column(default=None)
+    total_from_speech_end_ms: Mapped[int | None] = mapped_column(default=None)
+    interrupted: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 def create_db_engine(settings: BackendSettings) -> Engine:

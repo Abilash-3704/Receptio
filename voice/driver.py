@@ -43,6 +43,7 @@ class VoiceTurnDriver:
         # The core is synchronous (blocking LLM and backend calls): keep the event loop free so
         # audio keeps flowing and the Caller can still barge in.
         spoken = await asyncio.to_thread(self._call.hear, caller_text)
+        self._timings.on_core_turn(self._call.caller_turn_seq)
         first = True
         for utterance in spoken:
             for sentence in split_sentences(utterance):

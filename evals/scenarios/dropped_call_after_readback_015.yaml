@@ -1,5 +1,5 @@
 id: dropped_call_after_readback_015
-description: "Tricky call 15. The Caller picks a time, hears the read-back, goes silent and disconnects: nothing is Confirmed, no Patient record is created, and the Hold lapses on its own. (Recording the Call as dropped with an outcome arrives with call persistence, ticket 17.)"
+description: "Tricky call 15. The Caller picks a time, hears the read-back, goes silent and disconnects: nothing is Confirmed, no Patient record is created, and the Hold lapses on its own. The Call is recorded as dropped (ticket 17)."
 persona: silent
 category: silence_dropped
 tricky_calls: [15]
@@ -23,6 +23,8 @@ expected:
     live_holds: 0
     existing_appointments_intact: true
     escalation_kind: null
+    call_outcome: dropped
+    call_outcome_reason: "caller left before confirming: Hold read back, no answer"
   must_not:
     - invented_time
     - confirm_without_readback

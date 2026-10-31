@@ -11,6 +11,8 @@ expected:
     existing_appointments_intact: true
     escalation_kind: null
     live_holds: 0
+    call_outcome: dropped
+    call_outcome_reason: "caller silent: no speech"
   must_not:
     - invented_time
     - escalation_without_reason

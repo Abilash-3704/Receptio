@@ -46,5 +46,16 @@ class LLMTurn:
     tools: list[ToolSpec]
 
 
+@dataclass(frozen=True)
+class LLMUsage:
+    """What one request cost, as the provider reported it. A real LLM sets `last_usage` to this
+    after each `next_step`; a scripted one has none, and then nothing is recorded."""
+
+    model: str
+    input_tokens: int
+    output_tokens: int
+    duration_ms: int
+
+
 class LLM(Protocol):
     def next_step(self, turn: LLMTurn) -> Step: ...

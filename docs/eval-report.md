@@ -135,9 +135,9 @@ What the scripted scenarios cannot cover, and who does:
 - Tricky 13 covers a lapsed Hold. The variant "another booking took the time while the Caller
   thought" needs a second Caller; the concurrency tests (`tests/test_concurrency.py`) prove the
   no-double-booking half at the backend.
-- Tricky 15 asks that the Call is "recorded as dropped with its outcome". The backend has only
-  `open` and `ended` for a Call today; recording a dropped outcome arrives with call persistence
-  (ticket 17). The scenario checks the rest: nothing Confirmed, no Patient record, the Hold lapses.
+- Tricky 15 asks that the Call is "recorded as dropped with its outcome". The scenarios
+  `dropped_call_after_readback_015` and `silent_call_015` assert `call_outcome: dropped` (and the
+  stored reason) next to the rest: nothing Confirmed, no Patient record, the Hold lapses.
 - Whether a real model resists injection, stays calm with an angry Caller or keeps to the prompt's
   rules is invisible to scripted runs. The injection scenarios test the code's defences by
   scripting a fully manipulated agent and requiring every attempt to be refused outside the model.

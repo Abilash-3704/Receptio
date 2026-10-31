@@ -1,20 +1,25 @@
 from collections.abc import AsyncGenerator, Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app import booking, clinic_hours, knowledge
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
 from backend.app.config import BackendSettings
+from backend.app.cost import Prices, call_cost
 from backend.app.db import (
     AppointmentRecord,
+    CallLlmCall,
     CallRecord,
+    CallToolCall,
+    CallTurn,
+    CallTurnTiming,
     ConfirmationMessage,
     EscalationRecord,
     Patient,
@@ -173,15 +178,65 @@ class CallOut(BaseModel):
     started_at: datetime
     ended_at: datetime | None
     transcript: list[TurnIn]
+    outcome: str | None = None  # completed, escalated or dropped; None while the Call is open
+    outcome_reason: str | None = None
 
 
-def _out(record: CallRecord) -> CallOut:
+class EndIn(BaseModel):
+    """What the agent says about how the Call ended. The backend overrules it with the facts it
+    holds: a Call with an Escalation is escalated whatever was claimed."""
+
+    outcome: Literal["completed", "dropped"] | None = None
+    reason: Annotated[str, Field(max_length=200)] | None = None
+
+
+class OpenCallIn(BaseModel):
+    mode: Literal["text", "voice"] = "text"
+
+
+class ToolCallIn(BaseModel):
+    turn_seq: Annotated[int, Field(ge=1, le=MAX_ID)]
+    name: Annotated[str, Field(min_length=1, max_length=40)]
+    args: dict[str, Any]
+    ok: bool
+    refused: bool
+    result: dict[str, Any]
+
+
+class LlmCallIn(BaseModel):
+    """One LLM request's token usage, as the provider reported it."""
+
+    turn_seq: Annotated[int, Field(ge=1, le=MAX_ID)]
+    model: Annotated[str, Field(min_length=1, max_length=80)]
+    input_tokens: Annotated[int, Field(ge=0, le=10**9)]
+    output_tokens: Annotated[int, Field(ge=0, le=10**9)]
+    duration_ms: Annotated[int, Field(ge=0, le=10**7)] | None = None
+
+
+class TurnTimingIn(BaseModel):
+    """One line of voice/timing.py's per-turn record."""
+
+    caller_turn_seq: Annotated[int, Field(ge=1, le=MAX_ID)] | None = None
+    asr_final_ms: int | None = None
+    llm_first_token_ms: int | None = None
+    tts_first_audio_ms: int | None = None
+    total_ms: int | None = None
+    total_from_speech_end_ms: int | None = None
+    interrupted: bool = False
+
+
+def _out(session: Session, record: CallRecord) -> CallOut:
+    turns = session.scalars(
+        select(CallTurn).where(CallTurn.call_id == record.id).order_by(CallTurn.seq)
+    )
     return CallOut(
         id=record.id,
         status=record.status,
         started_at=record.started_at,
         ended_at=record.ended_at,
-        transcript=[TurnIn.model_validate(t) for t in record.transcript],
+        transcript=[TurnIn.model_validate({"speaker": t.speaker, "text": t.text}) for t in turns],
+        outcome=record.outcome,
+        outcome_reason=record.outcome_reason,
     )
 
 
@@ -217,8 +272,11 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         yield
         engine.dispose()
 
+    prices = Prices.from_settings(settings)
+
     app = FastAPI(title="Receptio clinic backend", lifespan=lifespan)
     app.state.session_factory = session_factory
+    app.state.prices = prices
 
     def get_call(session: Session, call_id: int) -> CallRecord:
         record = session.get(CallRecord, call_id)
@@ -539,15 +597,15 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         return [escalation_out(r) for r in session.scalars(query)]
 
     @app.post("/calls", status_code=201)
-    def open_call(session: SessionDep) -> CallOut:  # pyright: ignore[reportUnusedFunction]
-        record = CallRecord(started_at=clock(), transcript=[])
+    def open_call(session: SessionDep, body: OpenCallIn | None = None) -> CallOut:  # pyright: ignore[reportUnusedFunction]
+        record = CallRecord(started_at=clock(), mode=(body or OpenCallIn()).mode)
         session.add(record)
         session.commit()
-        return _out(record)
+        return _out(session, record)
 
     @app.get("/calls/{call_id}")
     def read_call(call_id: RowId, session: SessionDep) -> CallOut:  # pyright: ignore[reportUnusedFunction]
-        return _out(get_call(session, call_id))
+        return _out(session, get_call(session, call_id))
 
     @app.post("/calls/{call_id}/turns", status_code=201)
     def add_turn(  # pyright: ignore[reportUnusedFunction]
@@ -556,17 +614,83 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         record = get_call(session, call_id)
         if record.status != "open":
             raise HTTPException(status_code=409, detail="call already ended")
-        record.transcript = [*record.transcript, turn.model_dump()]
+        last = session.scalar(select(func.max(CallTurn.seq)).where(CallTurn.call_id == call_id))
+        session.add(
+            CallTurn(
+                call_id=call_id,
+                seq=(last or 0) + 1,
+                speaker=turn.speaker,
+                text=turn.text,
+                created_at=clock(),
+            )
+        )
         session.commit()
-        return _out(record)
+        return _out(session, record)
+
+    @app.post("/calls/{call_id}/tool-calls", status_code=201)
+    def add_tool_call(call_id: RowId, body: ToolCallIn, session: SessionDep) -> dict[str, int]:  # pyright: ignore[reportUnusedFunction]
+        get_call(session, call_id)
+        row = CallToolCall(call_id=call_id, created_at=clock(), **body.model_dump())
+        session.add(row)
+        session.commit()
+        return {"id": row.id}
+
+    @app.post("/calls/{call_id}/llm-calls", status_code=201)
+    def add_llm_call(call_id: RowId, body: LlmCallIn, session: SessionDep) -> dict[str, int]:  # pyright: ignore[reportUnusedFunction]
+        get_call(session, call_id)
+        row = CallLlmCall(
+            call_id=call_id,
+            created_at=clock(),
+            cost_usd=prices.llm_cost(body.model, body.input_tokens, body.output_tokens),
+            price_placeholder=prices.llm_placeholder,
+            **body.model_dump(),
+        )
+        session.add(row)
+        session.commit()
+        return {"id": row.id}
+
+    @app.post("/calls/{call_id}/turn-timings", status_code=201)
+    def add_turn_timing(call_id: RowId, body: TurnTimingIn, session: SessionDep) -> dict[str, int]:  # pyright: ignore[reportUnusedFunction]
+        get_call(session, call_id)
+        row = CallTurnTiming(call_id=call_id, **body.model_dump())
+        session.add(row)
+        session.commit()
+        return {"id": row.id}
 
     @app.post("/calls/{call_id}/end")
-    def end_call(call_id: RowId, session: SessionDep) -> CallOut:  # pyright: ignore[reportUnusedFunction]
+    def end_call(  # pyright: ignore[reportUnusedFunction]
+        call_id: RowId, session: SessionDep, body: EndIn | None = None
+    ) -> CallOut:
         record = get_call(session, call_id)
         if record.status == "open":  # idempotent: a second end changes nothing
+            claimed = body or EndIn()
+            first_escalation = session.scalars(
+                select(EscalationRecord)
+                .where(EscalationRecord.call_id == call_id)
+                .order_by(EscalationRecord.id)
+            ).first()
             record.status = "ended"
-            record.ended_at = clock()
+            ended_at = record.ended_at = clock()
+            if first_escalation is not None:
+                record.outcome, record.outcome_reason = "escalated", first_escalation.reason
+            else:
+                record.outcome = claimed.outcome or "completed"
+                record.outcome_reason = claimed.reason
+            llm_calls = session.scalars(select(CallLlmCall).where(CallLlmCall.call_id == call_id))
+            spoken = session.scalars(
+                select(CallTurn.text).where(
+                    CallTurn.call_id == call_id, CallTurn.speaker == "agent"
+                )
+            )
+            record.cost = call_cost(
+                prices,
+                record.mode,
+                record.started_at,
+                ended_at,
+                [(c.model, c.input_tokens, c.output_tokens) for c in llm_calls],
+                sum(len(text) for text in spoken),
+            )
             session.commit()
-        return _out(record)
+        return _out(session, record)
 
     return app

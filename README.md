@@ -130,6 +130,24 @@ Checked without a human (what was measured is in `docs/latency-budget.md`): the 
 6. Press End call; confirm the Call is `ended` in the backend.
 7. Latency: hold Calls totalling 20 or more turns (they append to the same log), then run `scripts/latency_summary logs/voice-turns.jsonl --min-turns 20`. Paste the output into `docs/latency-budget.md` with the date, machine, network and settings. Then tick the last two boxes in `.scratch/receptio-v1/issues/12-voice-loop-and-latency.md`.
 
+## Call persistence and trace
+
+Every Call, text or voice, is stored through one path: the agent core (`TextCall`) writes to the backend, and the voice worker adds its latency lines to the same Call. Tables (migration `0005`): `calls` (mode, outcome, outcome reason, cost), `call_turns` (the transcript), `call_tool_calls`, `call_llm_calls` (provider-reported tokens and the cost at the configured price) and `call_turn_timings` (voice latency per Caller turn). `backend.app.trace.load_trace(session, call_id)` reads one Call back whole; the trace viewer and the eval harness use that and nothing else. There is deliberately **no HTTP endpoint for it**: it carries names and phone numbers in full.
+
+Outcome: `completed`, `escalated` (the Escalation's reason is copied onto the Call) or `dropped` (the Caller never spoke, or left mid-booking, mid-cancellation or before giving a callback number; the reason says which step). The backend overrules a claimed outcome when it holds an Escalation. A Hold left behind by a dropped Call is not released: it lapses on its own (tricky call 15, asserted by the scenarios `dropped_call_after_readback_015` and `silent_call_015`). Calls stored before `0005` keep their transcript and have no outcome.
+
+Cost per Call, and how much of it is real:
+
+| Component | Quantity | How known |
+|---|---|---|
+| Claude | input and output tokens | **measured**: the `usage` the API returned for each request (real LLM only; scripted runs record none) |
+| Cartesia | characters of agent speech | **counted** by us from the transcript; the invoice may differ when speech is cut off by barge-in |
+| Deepgram | seconds | **estimated**: the Call's length stands in for audio streamed, which the provider does not report back |
+
+Prices are configuration (`LLM_PRICES_PER_MTOK`, `DEEPGRAM_USD_PER_MINUTE`, `CARTESIA_USD_PER_1K_CHARACTERS`). **The defaults are placeholders, not provider prices**; the stored cost carries `placeholder_prices: true` until all are set. A model without a price is stored with its tokens and `usd: null` rather than a guess. Text Calls have no audio, so no Deepgram or Cartesia cost. Nothing here was checked against a real provider invoice or a real voice Call.
+
+Personal data: transcript text and tool arguments (names, phone numbers) are stored in full in these tables, which is the database record. Log lines carry only Call ids, counts and timings, never what was said. Redaction in logs and protection of the endpoints that return transcripts (`GET /calls/{id}`, unauthenticated, and the new write-only trace endpoints) is ticket 18.
+
 ## Provider spend caps checklist
 
 Set these by hand before any code calls a provider. Tick each box once done and note the cap value. Caps are a second line of defence behind the in-code Call duration and daily minute limits.

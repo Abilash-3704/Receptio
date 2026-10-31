@@ -109,6 +109,28 @@ class CallState:
         self.awaiting_cancel_answer = False
         self.cancel_agreed = False
 
+    def unfinished_step(self) -> str | None:
+        """Where the Call stands if the Caller left now, when that is mid-flow: a booking,
+        cancellation or callback that was started and not finished. None when nothing is owed.
+        Used for the Call's outcome (dropped or not); the wording is stored, so no personal data."""
+        if self.escalated:
+            return None
+        if self.awaiting_cancel_answer:
+            return "cancellation not confirmed"
+        if self.callback_reason is not None:
+            return "callback number not given"
+        if self.appointment_id is not None or self.appointment_cancelled:
+            return None
+        if self.awaiting_read_back_answer:
+            return "Hold read back, no answer"
+        if self.hold is not None:
+            return "Hold placed, not confirmed"
+        if self.offers:
+            return "times offered, no Hold"
+        if self.service is not None or self.patient_name is not None:
+            return "booking details given, no times chosen"
+        return None
+
     def record_outcome(self, step: str, ok: bool) -> int:
         """Count consecutive failures of one step; a success resets it. Returns the count."""
         self.failures[step] = 0 if ok else self.failures.get(step, 0) + 1

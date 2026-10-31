@@ -4,8 +4,10 @@
 The state machine records the read-back "yes" itself (ADR-0001); the LLM never can."""
 
 import json
+import logging
 import re
 from dataclasses import dataclass
+from typing import Any, Literal
 
 import httpx
 
@@ -33,7 +35,7 @@ from agent.faq import (
     known_clock_times,
     unknown_amounts,
 )
-from agent.llm import LLM, LLMTurn, Message, Say
+from agent.llm import LLM, LLMTurn, LLMUsage, Message, Say
 from agent.safety import (
     EMERGENCY,
     EMERGENCY_REASON,
@@ -46,6 +48,8 @@ from agent.safety import (
 from agent.time_guard import unoffered_times
 from agent.tools import TOOL_SPECS, ToolBox, ToolCall
 from backend.app.clock import Clock, system_clock
+
+logger = logging.getLogger("receptio.agent")
 
 DISCLOSURE = (
     "Hello, you've reached the clinic's receptionist. I'm an AI assistant, "
@@ -106,11 +110,23 @@ class TextCall:
         self._state = CallState()
         self._tools = ToolBox(backend, call_id, self._state, clock)
         self._messages: list[Message] = []
+        # Transcript position of the Caller turn being answered: tool calls are filed under it.
+        self._caller_turn_seq = 0
+        # Trace writes that failed. The Call carries on; the trace is then incomplete.
+        self.trace_failures = 0
+
+    @property
+    def caller_turn_seq(self) -> int:
+        """Transcript position (1-based) of the latest Caller turn."""
+        return self._caller_turn_seq
 
     def say(self, speaker: str, text: str) -> None:
-        self._backend.post(
+        response = self._backend.post(
             f"/calls/{self.call_id}/turns", json={"speaker": speaker, "text": text}
-        ).raise_for_status()
+        )
+        response.raise_for_status()
+        if speaker == "caller":
+            self._caller_turn_seq = len(response.json()["transcript"])
         self.transcript.append(Turn(speaker, text))
         role = "caller" if speaker == "caller" else "agent"
         self._messages.append(Message(role, text))
@@ -161,6 +177,7 @@ class TextCall:
             step = self._llm.next_step(
                 LLMTurn(self._state.summary(), list(self._messages), TOOL_SPECS)
             )
+            self._trace_usage()
             if isinstance(step, Say):
                 facts = self._state.known_facts
                 if set(unoffered_times(step.text, self._state.ever_offered)) - known_clock_times(
@@ -182,6 +199,17 @@ class TextCall:
             result = self._tools.run(step.name, step.args)
             self.tool_calls.append(
                 ToolCall(step.name, step.args, result.ok, result.refused, result.data)
+            )
+            self._trace(
+                "tool-calls",
+                {
+                    "turn_seq": self._caller_turn_seq,
+                    "name": step.name,
+                    "args": step.args,
+                    "ok": result.ok,
+                    "refused": result.refused,
+                    "result": result.data,
+                },
             )
             failures = self._state.record_outcome(step.name, result.ok)
             if failures >= MAX_FAILURES_PER_STEP:
@@ -271,14 +299,49 @@ class TextCall:
         self.say("agent", text)
         spoken.append(text)
 
+    def _trace_usage(self) -> None:
+        usage: LLMUsage | None = getattr(self._llm, "last_usage", None)
+        if usage is not None:
+            self._trace(
+                "llm-calls",
+                {
+                    "turn_seq": self._caller_turn_seq,
+                    "model": usage.model,
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                    "duration_ms": usage.duration_ms,
+                },
+            )
+
+    def _trace(self, path: str, body: dict[str, Any]) -> None:
+        """Best-effort write of one trace record: a Caller is never failed because the trace
+        could not be stored. Logs the Call id only, never what was said."""
+        try:
+            self._backend.post(f"/calls/{self.call_id}/{path}", json=body).raise_for_status()
+        except Exception:  # noqa: BLE001 - best effort by design; see the docstring
+            self.trace_failures += 1
+            logger.warning("call %s: trace write to %s failed", self.call_id, path)
+
     def end(self) -> None:
-        self._backend.post(f"/calls/{self.call_id}/end").raise_for_status()
+        """The Call is over: the Caller hung up or left. It is recorded as dropped when the Caller
+        never spoke, or left mid-flow with nothing confirmed. (An Escalation makes it escalated,
+        which the backend decides from the Escalation it holds.) A Hold left behind is not
+        released: it lapses on its own."""
+        body: dict[str, Any] = {"outcome": "completed"}
+        if not any(t.speaker == "caller" for t in self.transcript):
+            body = {"outcome": "dropped", "reason": "caller silent: no speech"}
+        elif (step := self._state.unfinished_step()) is not None:
+            body = {"outcome": "dropped", "reason": f"caller left before confirming: {step}"}
+        self._backend.post(f"/calls/{self.call_id}/end", json=body).raise_for_status()
 
 
 def open_text_call(
-    backend: httpx.Client, llm: LLM | None = None, clock: Clock = system_clock
+    backend: httpx.Client,
+    llm: LLM | None = None,
+    clock: Clock = system_clock,
+    mode: Literal["text", "voice"] = "text",
 ) -> TextCall:
-    response = backend.post("/calls")
+    response = backend.post("/calls", json={"mode": mode})
     response.raise_for_status()
     call = TextCall(backend, int(response.json()["id"]), llm, clock)
     call.say("agent", DISCLOSURE)

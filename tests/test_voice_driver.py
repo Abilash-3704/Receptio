@@ -78,3 +78,14 @@ def test_the_disclosure_is_the_first_stored_turn_and_ending_closes_the_call(
     first = record["transcript"][0]
     assert (first["speaker"], first["text"]) == ("agent", DISCLOSURE)
     assert record["status"] == "ended"
+
+
+def test_the_timing_line_names_the_transcript_turn_it_belongs_to(backend: httpx.Client) -> None:
+    driver, timings, lines = make(backend, [Say("Hello there.")])
+    timings.on_speech_end(0.0)
+    timings.on_asr_final(0.1)
+
+    collect(driver, "Hi")
+    timings.on_tts_first_audio(5.0)
+
+    assert lines[0]["caller_turn"] == 2  # the disclosure is turn 1, the Caller's "Hi" turn 2

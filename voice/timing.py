@@ -13,6 +13,7 @@ activity detector's end of Caller speech, the speech-recognition final, the firs
 - `total_from_speech_end_ms`: VAD end of speech to first agent audio, a stricter reading that
   includes the wait for the VAD to decide the Caller stopped (itself later than the real end).
 
+`caller_turn` is the stored transcript position of the Caller turn, null if the core never took it.
 A field is null where a moment was not seen, e.g. a turn cut off before any agent audio.
 """
 
@@ -35,6 +36,7 @@ class TurnTimings:
         self._speech_end: float | None = None
         self._asr_final: float | None = None
         self._llm_first: float | None = None
+        self._core_turn: int | None = None
         self._pending = False
 
     def on_speech_end(self, t: float) -> None:
@@ -49,6 +51,10 @@ class TurnTimings:
         if self._llm_first is None:  # a later final belongs to the next turn
             self._asr_final = t
             self._pending = True
+
+    def on_core_turn(self, caller_turn_seq: int) -> None:
+        """The agent core took this Caller turn: its position in the stored transcript."""
+        self._core_turn = caller_turn_seq
 
     def on_llm_first_token(self, t: float) -> None:
         if self._pending and self._llm_first is None:
@@ -80,6 +86,7 @@ class TurnTimings:
             "event": "turn_timing",
             "call_id": self._call_id,
             "turn": self._turn,
+            "caller_turn": self._core_turn,
             "asr_final_ms": None if asr is None or vad is None else _ms(vad, asr),
             "llm_first_token_ms": None if llm is None else _ms(origin, llm),
             "tts_first_audio_ms": None if llm is None or audio is None else _ms(llm, audio),

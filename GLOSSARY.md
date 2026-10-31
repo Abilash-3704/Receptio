@@ -46,6 +46,10 @@ _Avoid_: Free slots, openings
 A voice session between a Caller and the agent, started from the web client.
 _Avoid_: Session, conversation, chat
 
+**Call outcome**:
+How a Call ended: completed, escalated (carries the Escalation's reason) or dropped. A **dropped Call** is one where the Caller left, or never spoke, in the middle of a booking, cancellation or callback with nothing confirmed. A Hold left behind lapses on its own.
+_Avoid_: Call status (that is only open or ended)
+
 **Escalation**:
 The agent ending its own handling of a Call by passing it to clinic staff, either as a Handoff or a Callback Request. Always carries a reason.
 _Avoid_: Transfer, fallback

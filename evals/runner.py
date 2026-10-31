@@ -236,6 +236,7 @@ def check_final_state(expected: dict[str, Any], obs: Observation) -> list[str]:
     new_ids = {a.id for a in new}
     new_patients = obs.after.patients[len(obs.before.patients) :]
     new_escalations = new_escalations_of(obs)
+    new_calls = obs.after.calls[len(obs.before.calls) :]
     actual: dict[str, Any] = {
         "appointment_confirmed": bool(new),
         "appointment_service": new[0].service if new else None,
@@ -250,6 +251,9 @@ def check_final_state(expected: dict[str, Any], obs: Observation) -> list[str]:
         "live_holds": obs.after.live_holds,
         "appointment_date": new[0].starts_at.date().isoformat() if new else None,
         "escalation_kind": new_escalations[0].kind if new_escalations else None,
+        # How the Call was recorded as ending (stored with the Call by ticket 17).
+        "call_outcome": new_calls[0].outcome if new_calls else None,
+        "call_outcome_reason": new_calls[0].outcome_reason if new_calls else None,
         "escalation_reason_recorded": bool(new_escalations)
         and all(e.reason.strip() for e in new_escalations),
         "escalation_phone_recorded": bool(new_escalations)

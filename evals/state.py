@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.app.clock import CLINIC_TZ
 from backend.app.db import (
     AppointmentRecord,
+    CallRecord,
     ConfirmationMessage,
     EscalationRecord,
     Patient,
@@ -52,6 +53,13 @@ class EscalationRow:
 
 
 @dataclass(frozen=True)
+class CallRow:
+    id: int
+    outcome: str | None  # completed, escalated or dropped
+    outcome_reason: str | None
+
+
+@dataclass(frozen=True)
 class FinalState:
     confirmed: list[AppointmentRow]
     held: int  # Appointments still in the Held state (Holds, expired or not)
@@ -60,6 +68,9 @@ class FinalState:
     escalations: list[EscalationRow] = field(default_factory=lambda: [])
     # Holds that are Held and not yet expired at the moment of reading (needs `now`).
     live_holds: int = 0
+    # Calls recorded so far. Left out of equality: a Call existing is not a change to the clinic's
+    # data, and "state == before" asserts that nothing the Call touched changed.
+    calls: list[CallRow] = field(default_factory=lambda: [], compare=False)
 
 
 def read_final_state(session_factory: SessionFactory, now: datetime | None = None) -> FinalState:
@@ -109,4 +120,8 @@ def read_final_state(session_factory: SessionFactory, now: datetime | None = Non
             EscalationRow(e.call_id, e.kind, e.reason, e.caller_phone)
             for e in session.scalars(select(EscalationRecord).order_by(EscalationRecord.id))
         ]
-    return FinalState(confirmed, held, patients, messages, escalations, live_holds)
+        calls = [
+            CallRow(c.id, c.outcome, c.outcome_reason)
+            for c in session.scalars(select(CallRecord).order_by(CallRecord.id))
+        ]
+    return FinalState(confirmed, held, patients, messages, escalations, live_holds, calls)

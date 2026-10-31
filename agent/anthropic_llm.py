@@ -5,12 +5,13 @@ Not exercised in CI. Only the agent's wiring (agent/main.py, later the voice pip
 this module; the agent core and the tests do not."""
 
 import json
+import time
 from typing import Any
 
 import anthropic
 
 from agent.config import AgentSettings
-from agent.llm import LLMTurn, Message, Say, Step, UseTool
+from agent.llm import LLMTurn, LLMUsage, Message, Say, Step, UseTool
 
 SYSTEM_PROMPT = """You are the receptionist for a dental clinic, speaking with a Caller. You are
 an AI. Keep replies short and natural: they are spoken aloud.
@@ -55,8 +56,11 @@ class AnthropicLLM:
         self._client = client
         self._model = model
         self._timeout = timeout_seconds
+        self.last_usage: LLMUsage | None = None
 
     def next_step(self, turn: LLMTurn) -> Step:
+        self.last_usage = None
+        started = time.monotonic()
         response = self._client.messages.create(
             model=self._model,
             max_tokens=400,
@@ -68,6 +72,14 @@ class AnthropicLLM:
                 for t in turn.tools
             ],
         )
+        usage = getattr(response, "usage", None)  # absent only from test stubs
+        if usage is not None:
+            self.last_usage = LLMUsage(
+                self._model,
+                int(usage.input_tokens),
+                int(usage.output_tokens),
+                round((time.monotonic() - started) * 1000),
+            )
         for block in response.content:
             if block.type == "tool_use":
                 return UseTool(block.name, dict(block.input))
