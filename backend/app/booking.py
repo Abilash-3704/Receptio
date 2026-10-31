@@ -94,6 +94,28 @@ def _lock_hold(session: Session, hold_id: int) -> AppointmentRecord:
     return hold
 
 
+def _lock_hold_for(
+    session: Session, hold_id: int, identity: tuple[str, str] | None
+) -> AppointmentRecord:
+    """Lock a Hold on behalf of a Caller. A reschedule Hold belongs to the Patient of the
+    Appointment it replaces: for anyone else (wrong name or phone, no details, unknown Hold) this
+    fails with the same 403 as every other identification failure, before anything about the
+    Hold's state is revealed or changed."""
+    hold = session.get(AppointmentRecord, hold_id)
+    if hold is None:
+        raise reject(403, IDENTIFICATION_FAILED)
+    lock_provider(session, hold.provider_id)
+    session.refresh(hold, with_for_update=True)
+    if hold.replaces_id is not None:
+        if identity is None:
+            raise reject(403, IDENTIFICATION_FAILED)
+        patient = identify(session, *identity)
+        original = session.get(AppointmentRecord, hold.replaces_id)
+        if original is None or original.patient_id != patient.id:
+            raise reject(403, IDENTIFICATION_FAILED)
+    return hold
+
+
 def release_hold(session: Session, hold_id: int, now: datetime) -> AppointmentRecord:
     """Free a Hold's time before it expires, for example when the Caller changes their mind.
     Releasing a Hold that is already released changes nothing."""
@@ -142,19 +164,15 @@ def _find_or_create_patient(session: Session, name: str, phone: str) -> Patient:
 def confirm(
     session: Session, hold_id: int, patient: tuple[str, str] | None, now: datetime
 ) -> AppointmentRecord:
-    """Confirm a Hold. `patient` is (name, phone) for a new booking, None for a reschedule Hold,
-    whose Patient is the original Appointment's."""
-    hold = _lock_hold(session, hold_id)
+    """Confirm a Hold. `patient` is the (name, phone) of a new booking's Patient, or the identity
+    of the Patient who owns the Appointment a reschedule Hold replaces, which must match."""
+    hold = _lock_hold_for(session, hold_id, patient)
     _require_live_hold(hold, now)
     if hold.read_back_at is None:
         raise reject(409, "no read-back agreement is recorded for this Hold")
 
     original: AppointmentRecord | None = None
     if hold.replaces_id is not None:
-        if patient is not None:
-            raise reject(
-                422, "a reschedule keeps the original Patient: do not send patient details"
-            )
         original = session.get(AppointmentRecord, hold.replaces_id)
         assert original is not None and original.patient_id is not None
         session.refresh(original, with_for_update=True)

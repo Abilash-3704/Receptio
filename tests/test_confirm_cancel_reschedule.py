@@ -59,10 +59,14 @@ def reschedule(
 
 
 def confirm_reschedule(
-    backend: httpx.Client, hold_id: int, key: str | None = None
+    backend: httpx.Client,
+    hold_id: int,
+    key: str | None = None,
+    name: str = "Asha Menon",
+    phone: str = "+91 98450 12345",
 ) -> httpx.Response:
-    """Confirm a reschedule Hold: the Patient is the original Appointment's, so no details."""
-    return backend.post(f"/holds/{hold_id}/confirm", headers={"Idempotency-Key": key or new_key()})
+    """Confirm a reschedule Hold as the identified Patient (name AND phone on file)."""
+    return confirm(backend, hold_id, name=name, phone=phone, key=key)
 
 
 def cancel(
@@ -223,7 +227,8 @@ def test_invalid_patient_details_are_rejected_not_guessed(backend: httpx.Client)
     assert confirm(backend, hold_id, phone="12345").status_code == 422
     assert confirm(backend, hold_id, name="   ").status_code == 422
     assert confirm(backend, hold_id, phone="nine eight four").status_code == 422
-    assert confirm_reschedule(backend, hold_id).status_code == 422  # no patient details at all
+    no_details = backend.post(f"/holds/{hold_id}/confirm", headers={"Idempotency-Key": new_key()})
+    assert no_details.status_code == 422  # a new booking needs the Patient's details
     assert confirm(backend, hold_id).status_code == 201
 
 
@@ -320,7 +325,7 @@ def test_a_failed_reschedule_leaves_the_original_confirmed(
     ).json()
     read_back(backend, late["id"])
     cancel(backend, other["id"], name="Ravi Kumar")
-    assert confirm_reschedule(backend, late["id"]).status_code == 409
+    assert confirm_reschedule(backend, late["id"], name="Ravi Kumar").status_code == 409
 
     assert status_of(backend, original["id"]) == "confirmed"
     assert status_of(backend, other["id"], name="Ravi Kumar") == "cancelled"
@@ -360,3 +365,29 @@ def test_a_retried_reschedule_confirm_returns_the_same_result(backend: httpx.Cli
 
     assert first.status_code == retry.status_code == 201
     assert retry.json() == first.json()
+
+
+def test_a_reschedule_hold_is_confirmed_only_for_the_patient_it_belongs_to(
+    backend: httpx.Client,
+) -> None:
+    original = booked(backend, "Filling", "Dr. Anita Rao", "2026-11-02 14:00")
+    booked(backend, "Filling", "Dr. Anita Rao", "2026-11-02 15:00", "Ravi Nair", "+91 98450 77777")
+    hold_id = reschedule(
+        backend, original["id"], "Dr. Vikram Shetty", "2026-11-02 11:00"
+    ).json()["id"]
+    read_back(backend, hold_id)
+
+    wrong_name = confirm_reschedule(backend, hold_id, name="Asha Nair")
+    wrong_phone = confirm_reschedule(backend, hold_id, phone="+91 98450 00000")
+    other_patient = confirm_reschedule(backend, hold_id, name="Ravi Nair", phone="+91 98450 77777")
+    unknown = confirm_reschedule(backend, hold_id, name="Nobody Here", phone="+91 90000 11111")
+    no_details = backend.post(f"/holds/{hold_id}/confirm", headers={"Idempotency-Key": new_key()})
+    malformed = confirm_reschedule(backend, hold_id, phone="123")
+
+    for response in (wrong_name, wrong_phone, other_patient, unknown, no_details, malformed):
+        assert response.status_code == 403
+        assert response.json() == {"detail": "identification failed"}
+    assert status_of(backend, original["id"]) == "confirmed"
+    # Nothing was consumed: the right Patient can still confirm the same Hold.
+    assert confirm_reschedule(backend, hold_id).status_code == 201
+    assert status_of(backend, original["id"]) == "cancelled"
