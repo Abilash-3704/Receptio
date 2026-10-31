@@ -6,11 +6,13 @@ The state machine records the read-back "yes" itself (ADR-0001); the LLM never c
 import json
 import logging
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
 
+from agent.call_limits import CLOSING_SPEECH, DURATION_REASON, CallLimits
 from agent.call_state import CallState
 from agent.escalation import (
     ASK_NUMBER,
@@ -36,6 +38,11 @@ from agent.faq import (
     unknown_amounts,
 )
 from agent.llm import LLM, LLMTurn, LLMUsage, Message, Say
+from agent.recording import (
+    RECORDING_OBJECTION_REASON,
+    RECORDING_OBJECTION_SPEECH,
+    objects_to_recording,
+)
 from agent.safety import (
     EMERGENCY,
     EMERGENCY_REASON,
@@ -101,8 +108,14 @@ class TextCall:
         call_id: int,
         llm: LLM | None = None,
         clock: Clock = system_clock,
+        limits: CallLimits | None = None,
     ) -> None:
         self._backend = backend
+        self._clock = clock
+        self._limits = limits
+        self._started = clock()
+        self._lock = threading.RLock()
+        self._recording = True
         self.call_id = call_id
         self._llm = llm
         self.transcript: list[Turn] = []
@@ -121,19 +134,68 @@ class TextCall:
         return self._caller_turn_seq
 
     def say(self, speaker: str, text: str) -> None:
-        response = self._backend.post(
-            f"/calls/{self.call_id}/turns", json={"speaker": speaker, "text": text}
-        )
-        response.raise_for_status()
-        if speaker == "caller":
-            self._caller_turn_seq = len(response.json()["transcript"])
+        if self._recording:  # after an objection to recording, nothing more is stored
+            response = self._backend.post(
+                f"/calls/{self.call_id}/turns", json={"speaker": speaker, "text": text}
+            )
+            response.raise_for_status()
+            if speaker == "caller":
+                self._caller_turn_seq = len(response.json()["transcript"])
         self.transcript.append(Turn(speaker, text))
         role = "caller" if speaker == "caller" else "agent"
         self._messages.append(Message(role, text))
 
+    @property
+    def expired(self) -> bool:
+        """The Call has reached its maximum duration and has been closed."""
+        return self._state.limit_reached
+
+    def _elapsed(self) -> float:
+        return (self._clock() - self._started).total_seconds()
+
+    def _limit_speech(self) -> list[str]:
+        """What is due from the duration cap right now: the spoken close at the maximum, or the
+        warning (once) from the warning time on. The warning offers a Callback Request, so a
+        Caller who says yes reaches the same forced Callback Request path as any other offer."""
+        limits, state = self._limits, self._state
+        if limits is None:
+            return []
+        spoken: list[str] = []
+        if self._elapsed() >= limits.max_seconds:
+            if not state.limit_reached:
+                state.limit_reached = True
+                self._speak(CLOSING_SPEECH, spoken)
+            return spoken
+        warn = not (state.limit_warned or state.escalated or state.callback_reason is not None)
+        if self._elapsed() >= limits.warning_seconds and warn:
+            state.limit_warned = True
+            state.callback_offer = DURATION_REASON
+            self._speak(limits.warning_speech(), spoken)
+        return spoken
+
+    def time_check(self) -> list[str]:
+        """For a Caller who is silent: what the duration cap says now, if anything is due. The
+        voice worker calls this on a timer; it is spoken and stored like any agent turn."""
+        with self._lock:
+            return self._limit_speech()
+
     def hear(self, caller_text: str) -> list[str]:
         """The Caller says something. Returns what the Caller hears in reply."""
         assert self._llm is not None, "this Call has no LLM"
+        with self._lock:
+            if self._state.limit_reached or (
+                self._limits is not None and self._elapsed() >= self._limits.max_seconds
+            ):
+                self.say("caller", caller_text)
+                # Closed: say so (again), never silence, and never consult the LLM.
+                return self._limit_speech() or [CLOSING_SPEECH]
+            return self._turn(caller_text) + self._limit_speech()
+
+    def _turn(self, caller_text: str) -> list[str]:
+        assert self._llm is not None, "this Call has no LLM"
+        objection = objects_to_recording(caller_text)
+        if objection:
+            self._recording = False  # the objection itself is not stored either
         self.say("caller", caller_text)
         # Safety first, in code, on every turn: before any other state and before the LLM.
         level = detect(caller_text)
@@ -145,6 +207,8 @@ class TextCall:
             return []  # the Call is with staff now
         if self._state.callback_reason is not None:
             return self._take_callback_number(caller_text)
+        if objection:
+            return self._record_objection()
         if asks_for_human(caller_text):
             return self._escalate(HUMAN_REASON)
         state = self._state
@@ -221,6 +285,19 @@ class TextCall:
             self._messages.append(Message("tool", json.dumps(payload)))
         self._speak(STUCK, spoken)
         return spoken
+
+    def _record_objection(self) -> list[str]:
+        """A Callback Request instead of a Call. It is always a Callback Request, never a
+        Handoff, because the Call itself cannot go on unrecorded."""
+        spoken: list[str] = []
+        self._tools.release_hold()
+        phone = self._state.patient_phone
+        if phone is None:
+            self._state.callback_reason = RECORDING_OBJECTION_REASON
+            self._state.number_asks = 1
+            self._speak(RECORDING_OBJECTION_SPEECH, spoken)
+            return spoken
+        return self._record_escalation(RECORDING_OBJECTION_REASON, phone)
 
     def _emergency(self, caller_text: str) -> list[str]:
         """The fixed script is the only thing said. The Escalation is recorded straight away,
@@ -316,6 +393,8 @@ class TextCall:
     def _trace(self, path: str, body: dict[str, Any]) -> None:
         """Best-effort write of one trace record: a Caller is never failed because the trace
         could not be stored. Logs the Call id only, never what was said."""
+        if not self._recording and path == "tool-calls":
+            return  # tool arguments can hold what the Caller said: not after an objection
         try:
             self._backend.post(f"/calls/{self.call_id}/{path}", json=body).raise_for_status()
         except Exception:  # noqa: BLE001 - best effort by design; see the docstring
@@ -339,10 +418,11 @@ def open_text_call(
     backend: httpx.Client,
     llm: LLM | None = None,
     clock: Clock = system_clock,
+    limits: CallLimits | None = None,
     mode: Literal["text", "voice"] = "text",
 ) -> TextCall:
     response = backend.post("/calls", json={"mode": mode})
     response.raise_for_status()
-    call = TextCall(backend, int(response.json()["id"]), llm, clock)
+    call = TextCall(backend, int(response.json()["id"]), llm, clock, limits)
     call.say("agent", DISCLOSURE)
     return call

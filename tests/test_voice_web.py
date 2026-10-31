@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import httpx
 import jwt
 import pytest
 from fastapi.testclient import TestClient
@@ -19,12 +20,12 @@ SETTINGS = VoiceSettings(
 )
 
 
-def client() -> TestClient:
-    return TestClient(create_app(SETTINGS))
+def client(backend: httpx.Client) -> TestClient:
+    return TestClient(create_app(SETTINGS, backend=backend))
 
 
-def test_token_endpoint_gives_a_caller_a_token_for_a_fresh_room() -> None:
-    response = client().post("/token")
+def test_token_endpoint_gives_a_caller_a_token_for_a_fresh_room(backend: httpx.Client) -> None:
+    response = client(backend).post("/token")
 
     assert response.status_code == 200
     body: dict[str, Any] = response.json()
@@ -41,14 +42,14 @@ def test_token_endpoint_gives_a_caller_a_token_for_a_fresh_room() -> None:
     assert not claims["video"].get("roomCreate")
 
 
-def test_every_call_gets_its_own_room() -> None:
-    c = client()
+def test_every_call_gets_its_own_room(backend: httpx.Client) -> None:
+    c = client(backend)
     rooms = {c.post("/token").json()["room"] for _ in range(3)}
     assert len(rooms) == 3
 
 
-def test_the_page_is_served_and_pins_the_livekit_client_version() -> None:
-    page = client().get("/")
+def test_the_page_is_served_and_pins_the_livekit_client_version(backend: httpx.Client) -> None:
+    page = client(backend).get("/")
 
     assert page.status_code == 200
     assert "livekit-client@" in page.text

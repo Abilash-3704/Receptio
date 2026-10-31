@@ -3,7 +3,7 @@
 The JSON transcript on `calls` becomes one `call_turns` row per utterance. Existing Calls keep
 their transcript (copied row by row, in order) and have no recorded outcome.
 
-Revision ID: 0005
+Revision ID: 0006
 """
 
 import json
@@ -11,8 +11,8 @@ import json
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0005"
-down_revision = "0004"
+revision = "0006"
+down_revision = "0005"
 
 _TIMESTAMP = sa.DateTime(timezone=True)
 

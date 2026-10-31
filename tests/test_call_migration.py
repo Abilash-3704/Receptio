@@ -30,7 +30,7 @@ def test_old_json_transcripts_become_turn_rows_and_the_new_tables_exist() -> Non
     with engine.begin() as conn:
         conn.execute(text("DROP SCHEMA public CASCADE"))
         conn.execute(text("CREATE SCHEMA public"))
-        migrate(conn, "0004")
+        migrate(conn, "0005")
         transcript = [
             {"speaker": "agent", "text": "Hello, I'm an AI."},
             {"speaker": "caller", "text": "Hi"},
@@ -64,7 +64,7 @@ def test_old_json_transcripts_become_turn_rows_and_the_new_tables_exist() -> Non
             built = {c["name"] for c in inspect(conn).get_columns(name)}
             assert built == {c.name for c in Base.metadata.tables[name].columns}, name
 
-        migrate(conn, "0004", "downgrade")
+        migrate(conn, "0005", "downgrade")
         restored = conn.execute(text("SELECT transcript FROM calls")).scalar_one()
         assert restored == transcript
     engine.dispose()

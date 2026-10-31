@@ -13,7 +13,7 @@
 
 ## Notes (implementation)
 
-- Verified: full suite on real Postgres (513 passed, 9 xfailed), ruff, pyright. Not verified: any real provider call or real voice Call; cost figures were never compared with an invoice.
+- Verified: full suite on real Postgres (576 passed, 9 xfailed), ruff, pyright. Not verified: any real provider call or real voice Call; cost figures were never compared with an invoice.
 - Dropped-call follow-up record (PROJECT.md Phase 5) is NOT done: it needs a number to ring and a policy on contacting someone who hung up. A dropped Call stores its outcome and reason; staff can query those.
 - For ticket 18: `GET /calls/{id}` still returns transcripts unauthenticated; the new `POST /calls/{id}/tool-calls|llm-calls|turn-timings` are unauthenticated writes; trace data (names, numbers in tool args) is read only through `backend.app.trace.load_trace`, no HTTP endpoint.
-- Migration `0005` replaces `calls.transcript` (JSON) with `call_turns`; old Calls are copied across and keep no outcome.
+- Migration `0006` replaces `calls.transcript` (JSON) with `call_turns`; old Calls are copied across and keep no outcome.

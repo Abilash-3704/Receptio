@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app import booking, clinic_hours, knowledge
+from backend.app import booking, capacity, clinic_hours, knowledge
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
 from backend.app.config import BackendSettings
 from backend.app.cost import Prices, call_cost
@@ -165,6 +165,19 @@ MAX_TURN_CHARS = 2000
 class FaqEntryOut(BaseModel):
     topic: str
     text: str
+
+
+Short = Annotated[str, StringConstraints(min_length=1, max_length=64)]
+
+
+class AdmissionIn(BaseModel):
+    room: Short
+    browser: Short
+    ip: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+
+
+class SettleIn(BaseModel):
+    used_seconds: Annotated[int, Field(ge=0, le=86_400)]
 
 
 class TurnIn(BaseModel):
@@ -595,6 +608,22 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
     def list_escalations(session: SessionDep) -> list[EscalationOut]:  # pyright: ignore[reportUnusedFunction]
         query = select(EscalationRecord).order_by(EscalationRecord.id)
         return [escalation_out(r) for r in session.scalars(query)]
+
+    @app.post("/capacity/admissions", status_code=201, response_model=None)
+    def admit_call(body: AdmissionIn, session: SessionDep) -> JSONResponse | dict[str, str]:  # pyright: ignore[reportUnusedFunction]
+        """Ask to start a Call. Called by the token endpoint before it issues a token."""
+        refused = capacity.admit(session, settings, clock(), body.room, body.browser, body.ip)
+        if refused is not None:
+            return JSONResponse(
+                status_code=429, content={"reason": refused.reason, "message": refused.message}
+            )
+        return {"room": body.room}
+
+    @app.post("/capacity/admissions/{room}/settle")
+    def settle_call(room: Short, body: SettleIn, session: SessionDep) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
+        if not capacity.settle(session, room, body.used_seconds):
+            raise HTTPException(status_code=404, detail="no such admission")
+        return {"room": room}
 
     @app.post("/calls", status_code=201)
     def open_call(session: SessionDep, body: OpenCallIn | None = None) -> CallOut:  # pyright: ignore[reportUnusedFunction]

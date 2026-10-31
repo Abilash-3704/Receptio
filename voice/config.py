@@ -28,6 +28,15 @@ class VoiceSettings(BaseSettings):
     # One JSON line per Caller turn (voice/timing.py); summarise with scripts/latency_summary.
     turn_log_path: str = "logs/voice-turns.jsonl"
 
+    # The clinic backend, which owns the cost guard's counters: the token endpoint asks it to
+    # admit every Call before issuing a token, and the worker reports each Call's length to it.
+    backend_url: str = "http://localhost:8000"
+    backend_timeout_seconds: float = 5.0
+    # How many reverse proxies in front of the web service append to X-Forwarded-For. 0 (the
+    # default) ignores the header entirely and uses the connection's own address, which a client
+    # cannot choose. Set it to the real number only behind proxies you run.
+    trusted_proxy_hops: int = 0
+
     @property
     def browser_url(self) -> str:
         return self.livekit_public_url or self.livekit_url

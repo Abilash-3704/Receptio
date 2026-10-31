@@ -11,6 +11,7 @@ Run (needs `uv sync --extra voice` and the provider keys in the environment or .
 Preemptive generation is switched off: the core mutates Call state (holds, Escalations) when it
 answers, so it must run once per Caller turn, never speculatively on interim transcripts."""
 
+import asyncio
 import logging
 import sys
 import time
@@ -38,10 +39,12 @@ from livekit.plugins import cartesia, deepgram, silero
 
 from agent.anthropic_llm import make_anthropic_llm
 from agent.backend_client import make_backend_client
+from agent.call_limits import CallLimits
 from agent.config import AgentSettings
 from agent.text_mode import DISCLOSURE, open_text_call
+from voice.admission import settle_admission
 from voice.config import VoiceSettings
-from voice.driver import VoiceTurnDriver
+from voice.driver import VoiceTurnDriver, watch_call_limits
 from voice.persist import storing
 from voice.timing import TurnTimings
 
@@ -108,6 +111,13 @@ server = AgentServer(
 )
 
 
+def _cancel(task: "asyncio.Task[None]"):  # noqa: ANN202
+    async def cancel() -> None:
+        task.cancel()
+
+    return cancel
+
+
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
     voice = VoiceSettings()
@@ -119,7 +129,14 @@ async def entrypoint(ctx: JobContext) -> None:
         raise RuntimeError("ANTHROPIC_API_KEY must be set for voice Calls")
     anthropic_key = agent_settings.anthropic_api_key.get_secret_value()
     backend = make_backend_client(agent_settings)
-    call = open_text_call(backend, llm=make_anthropic_llm(agent_settings), mode="voice")
+    call = open_text_call(
+        backend,
+        llm=make_anthropic_llm(agent_settings),
+        limits=CallLimits.from_settings(agent_settings),
+        mode="voice",
+    )
+    started = time.monotonic()
+    call_over = asyncio.Event()
     # One path: the timing line is logged and stored with the Call, like text-mode Calls.
     timings = TurnTimings(
         call.call_id, emit=storing(backend, call.call_id, write_line(voice.turn_log_path))
@@ -162,10 +179,13 @@ async def entrypoint(ctx: JobContext) -> None:
         logger.info("agent %s -> %s", ev.old_state, ev.new_state)
 
     async def finish() -> None:
+        call_over.set()
         timings.close()
         try:
             driver.end()
         finally:
+            # Report the Call's length so its unused minutes go back to the daily budget.
+            settle_admission(backend, ctx.room.name, int(time.monotonic() - started))
             backend.close()
 
     ctx.add_shutdown_callback(finish)
@@ -174,6 +194,20 @@ async def entrypoint(ctx: JobContext) -> None:
     # The AI + recording disclosure is the first thing the Caller hears. It is already stored as
     # the Call's first turn by open_text_call, so it is not added to the chat context again.
     session.say(DISCLOSURE, allow_interruptions=False, add_to_chat_ctx=False)
+
+    async def speak(text: str) -> None:
+        handle = session.say(text, allow_interruptions=False, add_to_chat_ctx=False)
+        await handle.wait_for_playout()
+
+    async def close() -> None:
+        # The close has been spoken in full (`speak` waits for playout). Deleting the room
+        # disconnects the browser, which shows "Call ended."
+        await ctx.delete_room()
+
+    # The duration cap for a Caller who says nothing: the warning at 4:30 and the close at 5:00.
+    # (A Caller who is talking hears them appended to the agent's reply instead.)
+    limits_task = asyncio.create_task(watch_call_limits(driver, speak, close, stop=call_over))
+    ctx.add_shutdown_callback(_cancel(limits_task))
 
 
 if __name__ == "__main__":

@@ -1,9 +1,10 @@
-from datetime import UTC, datetime, time
+from datetime import UTC, date, datetime, time
 from typing import Any
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Dialect,
     Engine,
@@ -161,6 +162,30 @@ class EscalationRecord(Base):
     reason: Mapped[str] = mapped_column(String(200))
     caller_phone: Mapped[str | None] = mapped_column(String(20), default=None)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+
+class CapacityCounter(Base):
+    """A daily usage counter for the cost guard: Calls for one visitor or IP (keyed by a hash,
+    never the raw address), or reserved seconds for everyone. See backend/app/capacity.py."""
+
+    __tablename__ = "capacity_counters"
+
+    scope: Mapped[str] = mapped_column(String(16), primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    used: Mapped[int] = mapped_column(default=0)
+
+
+class CallAdmission(Base):
+    """A Call the cost guard let in, by LiveKit room: what it reserved and whether the unused
+    part has been given back."""
+
+    __tablename__ = "call_admissions"
+
+    room: Mapped[str] = mapped_column(String(64), primary_key=True)
+    day: Mapped[date] = mapped_column(Date)
+    reserved_seconds: Mapped[int]
+    settled: Mapped[bool] = mapped_column(default=False)
 
 
 class CallRecord(Base):
