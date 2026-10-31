@@ -29,7 +29,9 @@ def backend(clock: FakeClock) -> Iterator[httpx.Client]:
             conn.execute(text("DROP SCHEMA public CASCADE"))
             conn.execute(text("CREATE SCHEMA public"))
         engine.dispose()
-    settings = BackendSettings(database_url=POSTGRES_URL or "sqlite+pysqlite:///:memory:")
+    settings = BackendSettings(
+        database_url=POSTGRES_URL or "sqlite+pysqlite:///:memory:", demo_controls_enabled=True
+    )
     with TestClient(create_app(settings, clock=clock), base_url="http://backend") as client:
         # With the `llm` extra installed, starlette's TestClient subclasses httpx2.Client, not
         # httpx.Client. It is call-compatible, so the agent code (typed on httpx) runs unchanged.

@@ -7,7 +7,7 @@ the trace), so a regression in the agent core cannot hide itself."""
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import yaml
@@ -19,7 +19,7 @@ from agent.scripted_llm import ScriptedLLM
 from agent.text_mode import DISCLOSURE, TextCall, Turn, open_text_call
 from agent.time_guard import clock_times_in
 from agent.tools import ToolCall
-from evals.state import AppointmentRow, FinalState, SessionFactory, read_final_state
+from evals.state import AppointmentRow, EscalationRow, FinalState, SessionFactory, read_final_state
 
 
 class ScriptStep(BaseModel):
@@ -51,6 +51,9 @@ class Scenario(BaseModel):
     description: str
     persona: str
     turns: list[str]
+    # Forces the clinic open or closed for the Call (the demo-only override); unset follows the
+    # real Clinic Hours and the clock.
+    clinic: Literal["open", "closed"] | None = None
     agent_script: list[ScriptStep] = Field(default_factory=lambda: [])
     expected: Expected
 
@@ -68,6 +71,7 @@ class Observation:
     tool_calls: list[ToolCall]
     transcript: list[Turn]
     caller_turns: int
+    clinic_open: bool | None = None  # whether the clinic was open during the Call
 
 
 @dataclass(frozen=True)
@@ -85,16 +89,24 @@ def run_scenario(
 ) -> ScenarioResult:
     before = read_final_state(session_factory)
     llm = ScriptedLLM([s.to_step() for s in scenario.agent_script])
-    call: TextCall = open_text_call(backend, llm=llm)
-    for text in scenario.turns[: scenario.expected.max_turns]:
-        call.hear(text)
-    call.end()
+    if scenario.clinic is not None:
+        backend.put("/demo/clinic-override", json={"mode": scenario.clinic}).raise_for_status()
+    try:
+        clinic_open: bool = backend.get("/clinic-status").json()["open"]
+        call: TextCall = open_text_call(backend, llm=llm)
+        for text in scenario.turns[: scenario.expected.max_turns]:
+            call.hear(text)
+        call.end()
+    finally:
+        if scenario.clinic is not None:
+            backend.put("/demo/clinic-override", json={"mode": None}).raise_for_status()
     observation = Observation(
         before=before,
         after=read_final_state(session_factory),
         tool_calls=call.tool_calls,
         transcript=call.transcript,
         caller_turns=len(scenario.turns),
+        clinic_open=clinic_open,
     )
     return ScenarioResult(scenario.id, judge(scenario.expected, observation))
 
@@ -114,10 +126,15 @@ def new_appointments(obs: Observation) -> list[AppointmentRow]:
     return [a for a in obs.after.confirmed if a.id not in known]
 
 
+def new_escalations_of(obs: Observation) -> list[EscalationRow]:
+    return obs.after.escalations[len(obs.before.escalations) :]
+
+
 def check_final_state(expected: dict[str, Any], obs: Observation) -> list[str]:
     new = new_appointments(obs)
     new_ids = {a.id for a in new}
     new_patients = obs.after.patients[len(obs.before.patients) :]
+    new_escalations = new_escalations_of(obs)
     actual: dict[str, Any] = {
         "appointment_confirmed": bool(new),
         "appointment_service": new[0].service if new else None,
@@ -127,6 +144,11 @@ def check_final_state(expected: dict[str, Any], obs: Observation) -> list[str]:
         and new_ids
         == {m.appointment_id for m in obs.after.messages if m.appointment_id in new_ids},
         "overlapping_appointment": has_overlap(obs.after),
+        "escalation_kind": new_escalations[0].kind if new_escalations else None,
+        "escalation_reason_recorded": bool(new_escalations)
+        and all(e.reason.strip() for e in new_escalations),
+        "escalation_phone_recorded": bool(new_escalations)
+        and all(e.caller_phone for e in new_escalations),
     }
     failures: list[str] = []
     for key, want in expected.items():
@@ -152,6 +174,20 @@ def violations_of(rule: str, obs: Observation) -> list[str]:
         return confirm_without_readback(obs)
     if rule == "invented_time":
         return invented_time(obs)
+    if rule == "escalation_without_reason":
+        return [
+            f"an Escalation of kind {e.kind} has no reason"
+            for e in new_escalations_of(obs)
+            if not e.reason.strip()
+        ]
+    if rule == "handoff_when_closed":
+        if obs.clinic_open is not False:
+            return []
+        return [
+            "a Handoff was started while the clinic was closed"
+            for e in new_escalations_of(obs)
+            if e.kind == "handoff"
+        ]
     return [f"unknown rule {rule!r}"]
 
 

@@ -1,0 +1,22 @@
+id: angry_same_hour_callback_001
+description: Tricky call 8, clinic closed. Same angry Caller; staff are unavailable, so the agent records a Callback Request with the Caller's number instead of a Handoff
+persona: angry_demanding
+clinic: closed
+turns:
+  - "I need a cleaning within the next hour. Right now."
+  - "That is ridiculous, you people are useless. Get me a human."
+  - "Fine. 98450 12345."
+agent_script:
+  - say: "I'm sorry, I can't book an Appointment that soon; the earliest I can offer is two hours from now. Would a later time today or another day suit you?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: callback_request
+    escalation_reason_recorded: true
+    escalation_phone_recorded: true
+  must_not:
+    - invented_time
+    - confirm_without_readback
+    - escalation_without_reason
+    - handoff_when_closed
+  max_turns: 3

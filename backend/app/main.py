@@ -1,21 +1,22 @@
 from collections.abc import AsyncGenerator, Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app import booking
+from backend.app import booking, clinic_hours
 from backend.app.clock import CLINIC_TZ, Clock, system_clock
 from backend.app.config import BackendSettings
 from backend.app.db import (
     AppointmentRecord,
     CallRecord,
     ConfirmationMessage,
+    EscalationRecord,
     Patient,
     Provider,
     Service,
@@ -99,6 +100,35 @@ class ConfirmationMessageOut(BaseModel):
 def aware(value: datetime) -> datetime:
     """A datetime without an offset is clinic local time (Asia/Kolkata)."""
     return value.replace(tzinfo=CLINIC_TZ) if value.tzinfo is None else value
+
+
+class ClinicOverrideIn(BaseModel):
+    mode: Literal["open", "closed"] | None
+
+
+class EscalationIn(BaseModel):
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    caller_phone: str | None = None
+
+
+class EscalationOut(BaseModel):
+    id: int
+    call_id: int
+    kind: str  # handoff or callback_request
+    reason: str
+    caller_phone: str | None
+    created_at: datetime
+
+
+def escalation_out(record: EscalationRecord) -> EscalationOut:
+    return EscalationOut(
+        id=record.id,
+        call_id=record.call_id,
+        kind=record.kind,
+        reason=record.reason,
+        caller_phone=record.caller_phone,
+        created_at=record.created_at,
+    )
 
 
 class TurnIn(BaseModel):
@@ -359,6 +389,59 @@ def create_app(settings: BackendSettings | None = None, clock: Clock = system_cl
         if appointment_id is not None:
             query = query.where(ConfirmationMessage.appointment_id == appointment_id)
         return [message_out(m) for m in session.scalars(query)]
+
+    # The demo-only override: "open", "closed" or None (follow the real Clinic Hours).
+    clinic_override: list[str | None] = [None]
+
+    def clinic_is_open(session: Session) -> bool:
+        if clinic_override[0] is not None:
+            return clinic_override[0] == "open"
+        return clinic_hours.is_open(session, clock())
+
+    @app.get("/clinic-status")
+    def clinic_status(session: SessionDep) -> dict[str, bool | str | None]:  # pyright: ignore[reportUnusedFunction]
+        return {"open": clinic_is_open(session), "override": clinic_override[0]}
+
+    if settings.demo_controls_enabled:
+
+        @app.put("/demo/clinic-override")
+        def set_clinic_override(body: ClinicOverrideIn) -> dict[str, str | None]:  # pyright: ignore[reportUnusedFunction]
+            clinic_override[0] = body.mode
+            return {"override": body.mode}
+
+    @app.post("/calls/{call_id}/escalations", status_code=201, response_model=None)
+    def escalate(  # pyright: ignore[reportUnusedFunction]
+        call_id: int, body: EscalationIn, session: SessionDep, idempotency_key: IdempotencyKey
+    ) -> JSONResponse:
+        """Pass the Call to staff. The backend decides the kind: a Handoff during Clinic Hours,
+        otherwise a Callback Request."""
+
+        def work() -> tuple[int, BaseModel]:
+            get_call(session, call_id)
+            phone = None if not body.caller_phone else booking.normalise_phone(body.caller_phone)
+            record = EscalationRecord(
+                call_id=call_id,
+                kind="handoff" if clinic_is_open(session) else "callback_request",
+                reason=body.reason,
+                caller_phone=phone,
+                created_at=clock(),
+            )
+            session.add(record)
+            session.flush()
+            return 201, escalation_out(record)
+
+        return run_idempotent(
+            session,
+            idempotency_key,
+            f"POST /calls/{call_id}/escalations",
+            body.model_dump(),
+            work,
+        )
+
+    @app.get("/escalations")
+    def list_escalations(session: SessionDep) -> list[EscalationOut]:  # pyright: ignore[reportUnusedFunction]
+        query = select(EscalationRecord).order_by(EscalationRecord.id)
+        return [escalation_out(r) for r in session.scalars(query)]
 
     @app.post("/calls", status_code=201)
     def open_call(session: SessionDep) -> CallOut:  # pyright: ignore[reportUnusedFunction]

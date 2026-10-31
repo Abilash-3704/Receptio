@@ -1,6 +1,6 @@
 """Reads the clinic database the way a scenario asserts on it: what exists after a Call."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
@@ -11,6 +11,7 @@ from backend.app.clock import CLINIC_TZ
 from backend.app.db import (
     AppointmentRecord,
     ConfirmationMessage,
+    EscalationRecord,
     Patient,
     Provider,
     Service,
@@ -43,11 +44,20 @@ class MessageRow:
 
 
 @dataclass(frozen=True)
+class EscalationRow:
+    call_id: int
+    kind: str  # handoff or callback_request
+    reason: str
+    caller_phone: str | None
+
+
+@dataclass(frozen=True)
 class FinalState:
     confirmed: list[AppointmentRow]
     held: int  # Appointments still in the Held state (Holds, expired or not)
     patients: list[str]  # Patient names
     messages: list[MessageRow]
+    escalations: list[EscalationRow] = field(default_factory=lambda: [])
 
 
 def read_final_state(session_factory: SessionFactory) -> FinalState:
@@ -87,4 +97,8 @@ def read_final_state(session_factory: SessionFactory) -> FinalState:
             MessageRow(m.appointment_id, m.to_phone, m.body)
             for m in session.scalars(select(ConfirmationMessage).order_by(ConfirmationMessage.id))
         ]
-    return FinalState(confirmed, held, patients, messages)
+        escalations = [
+            EscalationRow(e.call_id, e.kind, e.reason, e.caller_phone)
+            for e in session.scalars(select(EscalationRecord).order_by(EscalationRecord.id))
+        ]
+    return FinalState(confirmed, held, patients, messages, escalations)
