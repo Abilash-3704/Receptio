@@ -242,3 +242,15 @@ def test_a_baseline_for_another_mode_is_not_comparable() -> None:
     base = baseline_from(build_report(GOOD, "simulated", SETTINGS))
 
     assert "mode" in compare_to_baseline(report(), base)[0]
+
+
+def test_a_suite_that_shrinks_below_the_baseline_is_a_regression() -> None:
+    # Deleting (or relabelling as a known gap) a failing scenario must not make the gate pass.
+    base = baseline_from(build_report(GOOD, "scripted", SETTINGS))
+    assert base["scenarios"] == sum(1 for s, _ in GOOD if not s.known_gap)
+
+    smaller = build_report(GOOD[1:], "scripted", SETTINGS)
+
+    assert any(r.startswith("scenarios") for r in compare_to_baseline(smaller, base))
+    grown = build_report(GOOD + [(scenario("extra"), result("extra"))], "scripted", SETTINGS)
+    assert compare_to_baseline(grown, base) == []

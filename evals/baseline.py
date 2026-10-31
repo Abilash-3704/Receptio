@@ -20,6 +20,9 @@ def baseline_from(report: Report) -> Baseline:
     return {
         "schema_version": SCHEMA_VERSION,
         "mode": report["mode"],
+        # Core scenarios (known-gap probes excluded). The suite may grow, never shrink: removing
+        # a failing scenario must not be a way to pass.
+        "scenarios": report["scenario_counts"]["core"],
         "metrics": {
             key: m["value"]
             for key, m in report["metrics"].items()
@@ -36,6 +39,11 @@ def compare_to_baseline(report: Report, baseline: Baseline, tolerance: float = 0
     if baseline["mode"] != report["mode"]:
         return [f"baseline is for mode {baseline['mode']!r}, report is {report['mode']!r}"]
     problems: list[str] = []
+    core = report["scenario_counts"]["core"]
+    if core < baseline.get("scenarios", 0):
+        problems.append(
+            f"scenarios: {core} core scenarios ran, the baseline had {baseline['scenarios']}"
+        )
     for key, was in baseline["metrics"].items():
         m = report["metrics"].get(key)
         if m is None or m["value"] is None:
