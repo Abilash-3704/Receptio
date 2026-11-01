@@ -48,8 +48,21 @@ class AsrDropoutWatch:
         self._grace = grace_seconds
         self._speech_start: float | None = None
         self._waiting_since: float | None = None
+        self._agent_speaking = False
+
+    def on_agent_speaking(self, speaking: bool) -> None:
+        """While the agent talks, whatever the voice detector hears is most likely its own voice
+        coming back through the Caller's speakers, not a Caller whose words were lost. Drop any
+        speech in progress and any dropout still pending: the agent is replying, so nothing was
+        missed. A real interruption is handled by barge-in, not by this watch."""
+        self._agent_speaking = speaking
+        if speaking:
+            self._speech_start = None
+            self._waiting_since = None
 
     def on_speech_start(self, now: float) -> None:
+        if self._agent_speaking:
+            return
         self._speech_start = now
         self._waiting_since = None
 

@@ -53,6 +53,7 @@ from voice.resilience import AsrDropoutWatch, VoiceResilience
 from voice.timing import TurnTimings
 
 logger = logging.getLogger("receptio.voice")
+logger.setLevel(logging.INFO)  # state and ASR events (names and counts only) reach the worker log
 install_log_redaction()  # names and phone numbers never reach this process's logs
 
 
@@ -188,6 +189,7 @@ async def entrypoint(ctx: JobContext) -> None:
     @session.on("agent_state_changed")
     def _agent_state(ev: AgentStateChangedEvent) -> None:  # pyright: ignore[reportUnusedFunction]
         logger.info("agent %s -> %s", ev.old_state, ev.new_state)
+        asr_watch.on_agent_speaking(ev.new_state == "speaking")
 
     async def finish() -> None:
         call_over.set()

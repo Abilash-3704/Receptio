@@ -231,3 +231,44 @@ def test_a_disconnect_while_the_backend_is_slow_still_records_the_outcome(
 
     assert call_record(backend, driver)["outcome"] == "dropped"
     assert wrapper.count("POST", "/end") == 2
+
+
+def test_speech_heard_while_the_agent_is_talking_is_not_a_dropout() -> None:
+    # The agent's own voice leaking into the microphone looks like a Caller who spoke and left
+    # no text. It must not make the agent apologise for not catching something.
+    watch = AsrDropoutWatch(min_speech_seconds=1.0, grace_seconds=4.0)
+    watch.on_agent_speaking(True)
+    watch.on_speech_start(10.0)
+    watch.on_speech_end(14.0)
+    watch.on_agent_speaking(False)
+
+    assert not watch.due(60.0)
+
+
+def test_speech_that_began_before_the_agent_started_talking_is_discarded_too() -> None:
+    watch = AsrDropoutWatch(min_speech_seconds=1.0, grace_seconds=4.0)
+    watch.on_speech_start(10.0)
+    watch.on_agent_speaking(True)  # the agent started: what the detector hears is its echo
+    watch.on_speech_end(14.0)
+    watch.on_agent_speaking(False)
+
+    assert not watch.due(60.0)
+
+
+def test_a_dropout_after_the_agent_has_finished_still_counts() -> None:
+    watch = AsrDropoutWatch(min_speech_seconds=1.0, grace_seconds=4.0)
+    watch.on_agent_speaking(True)
+    watch.on_agent_speaking(False)
+    watch.on_speech_start(20.0)
+    watch.on_speech_end(23.0)
+
+    assert watch.due(27.0)
+
+
+def test_the_agent_starting_to_talk_cancels_a_pending_dropout() -> None:
+    watch = AsrDropoutWatch(min_speech_seconds=1.0, grace_seconds=4.0)
+    watch.on_speech_start(10.0)
+    watch.on_speech_end(13.0)
+    watch.on_agent_speaking(True)  # the agent is already replying: nothing was lost
+
+    assert not watch.due(60.0)
