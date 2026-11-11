@@ -24,6 +24,7 @@ from livekit.agents import (
     Agent,
     AgentServer,
     AgentSession,
+    FlushSentinel,
     JobContext,
     JobProcess,
     ModelSettings,
@@ -77,9 +78,14 @@ class ReceptioAgent(Agent):
         chat_ctx: llm.ChatContext,
         tools: list[llm.Tool],
         model_settings: ModelSettings,
-    ) -> AsyncGenerator[str, None]:
-        async for sentence in self._driver.reply(last_user_text(chat_ctx)):
-            yield sentence
+    ) -> AsyncGenerator[str | FlushSentinel, None]:
+        # Each piece the core hands over is its own speech segment: the flush makes synthesis
+        # start on it now. Without it a lone sentence ("Let me look that up for you.") waits for
+        # the next text, so it was heard only after the answer, defeating the point of saying it.
+        async for segment in self._driver.segments(last_user_text(chat_ctx)):
+            for sentence in segment:
+                yield sentence
+            yield FlushSentinel()
 
     async def tts_node(
         self, text: AsyncIterable[str], model_settings: ModelSettings
@@ -139,6 +145,7 @@ async def entrypoint(ctx: JobContext) -> None:
         backend,
         llm=make_anthropic_llm(agent_settings),
         limits=CallLimits.from_settings(agent_settings),
+        auto_read_back=True,  # the real LLM is told read_back follows place_hold: the code does it
     )
     if call is None:  # the backend refused this worker; the reason is logged. No Call to run.
         backend.close()
@@ -189,7 +196,7 @@ async def entrypoint(ctx: JobContext) -> None:
     @session.on("agent_state_changed")
     def _agent_state(ev: AgentStateChangedEvent) -> None:  # pyright: ignore[reportUnusedFunction]
         logger.info("agent %s -> %s", ev.old_state, ev.new_state)
-        asr_watch.on_agent_speaking(ev.new_state == "speaking")
+        asr_watch.on_agent_speaking(ev.new_state == "speaking", time.monotonic())
 
     async def finish() -> None:
         call_over.set()

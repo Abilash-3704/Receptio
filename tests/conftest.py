@@ -22,6 +22,21 @@ POSTGRES_URL = os.environ.get("TEST_DATABASE_URL")
 
 
 @pytest.fixture(autouse=True)
+def system_clock_is_start_of_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The agent's tools and the eval runner default to the real clock, while the backend gets
+    the fake one. Scenarios and tests name fixed dates (2026-11-03), so pin the real clock to the
+    test start: otherwise they rot the day those dates pass."""
+    import backend.app.clock as clock_module
+
+    class PinnedDatetime(clock_module.datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> Any:
+            return START_OF_TEST.astimezone(tz) if tz is not None else START_OF_TEST
+
+    monkeypatch.setattr(clock_module, "datetime", PinnedDatetime)
+
+
+@pytest.fixture(autouse=True)
 def no_dotenv_file(monkeypatch: pytest.MonkeyPatch) -> None:
     """No settings class reads a developer's local `.env`: every test starts from the defaults
     plus what it sets itself, so a value in `.env` can never change a result."""

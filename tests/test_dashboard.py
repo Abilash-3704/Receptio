@@ -267,3 +267,30 @@ def test_the_summary_metrics_on_the_page_and_in_the_api_match_the_stored_calls(
     assert day_text.endswith("3")
     [(_, reason_text)] = page.where(**{"data-row": "escalation-reason"})
     assert reason_text == "caller asked for a human 1"
+
+
+def test_the_schedule_shows_only_confirmed_appointments_in_the_chosen_week(
+    backend: httpx.Client,
+) -> None:
+    from tests.support import confirm, held, read_back
+
+    confirmed = held(backend, "Cleaning", "Meera Nair", "2026-11-03 10:00")
+    assert read_back(backend, confirmed).status_code == 200
+    assert confirm(backend, confirmed, name="Asha Menon").status_code == 201
+    held(backend, "Cleaning", "Meera Nair", "2026-11-03 12:00")  # a Hold: not an Appointment
+
+    page = Page(backend.get("/dashboard/appointments?week=2026-11-05").text)
+    other_week = Page(backend.get("/dashboard/appointments?week=2026-11-12").text)
+    api: list[Json] = backend.get("/dashboard/api/appointments?week=2026-11-05").json()
+
+    # The seeded Appointment (Dr. Rao, 3 November 10:00) is confirmed too, so it is listed
+    # beside the one booked here; the Hold is not.
+    shown = [v["data-appointment-id"] for v, _ in page.where(**{"data-row": "appointment"})]
+    assert str(confirmed) in shown and len(shown) == 2
+    assert page.text_of(**{"data-field": "count"}) == "2 appointment(s)"
+    assert other_week.where(**{"data-row": "appointment"}) == []
+    assert (confirmed, "Asha Menon", "2345") in [
+        (a["id"], a["patient"], a["phone_ending"]) for a in api
+    ]
+    assert len(api) == 2
+    assert anonymous(backend).get("/dashboard/appointments").status_code == 401

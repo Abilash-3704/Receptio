@@ -25,6 +25,9 @@ TTS_APOLOGY = "I'm sorry, I'm having trouble with my voice. Could you say that a
 MIN_SPEECH_SECONDS = 1.0
 # How long after the Caller stops speaking the recogniser may take to produce text.
 ASR_GRACE_SECONDS = 4.0
+# Speech that starts this soon after the agent stops talking is most likely its echo draining out
+# of the Caller's speakers or the browser's playback buffer, not the Caller answering.
+ECHO_HOLDOFF_SECONDS = 1.0
 
 
 class FaultyCall(Protocol):
@@ -43,41 +46,61 @@ class AsrDropoutWatch:
         self,
         min_speech_seconds: float = MIN_SPEECH_SECONDS,
         grace_seconds: float = ASR_GRACE_SECONDS,
+        echo_holdoff_seconds: float = ECHO_HOLDOFF_SECONDS,
     ) -> None:
+        self._holdoff = echo_holdoff_seconds
+        self._quiet_until = 0.0
         self._min = min_speech_seconds
         self._grace = grace_seconds
         self._speech_start: float | None = None
         self._waiting_since: float | None = None
         self._agent_speaking = False
+        self._text_during_speech = False
+        self._speech_seconds = 0.0
 
-    def on_agent_speaking(self, speaking: bool) -> None:
+    def on_agent_speaking(self, speaking: bool, now: float) -> None:
         """While the agent talks, whatever the voice detector hears is most likely its own voice
         coming back through the Caller's speakers, not a Caller whose words were lost. Drop any
         speech in progress and any dropout still pending: the agent is replying, so nothing was
         missed. A real interruption is handled by barge-in, not by this watch."""
         self._agent_speaking = speaking
+        if not speaking:
+            self._quiet_until = now + self._holdoff
         if speaking:
             self._speech_start = None
             self._waiting_since = None
 
     def on_speech_start(self, now: float) -> None:
-        if self._agent_speaking:
+        if self._agent_speaking or now < self._quiet_until:
             return
         self._speech_start = now
         self._waiting_since = None
+        self._text_during_speech = False
 
     def on_speech_end(self, now: float) -> None:
         started, self._speech_start = self._speech_start, None
-        if started is not None and now - started >= self._min:
+        heard = self._text_during_speech
+        self._text_during_speech = False
+        # The recogniser usually finalises before the voice detector closes the utterance (see
+        # voice/timing.py), so the text may already have arrived: nothing was lost.
+        if started is not None and now - started >= self._min and not heard:
             self._waiting_since = now
+            self._speech_seconds = now - started
 
     def on_text(self) -> None:
         """The recogniser produced a final transcript: nothing was lost."""
         self._waiting_since = None
+        if self._speech_start is not None:
+            self._text_during_speech = True
 
     def due(self, now: float) -> bool:
         if self._waiting_since is not None and now - self._waiting_since >= self._grace:
             self._waiting_since = None
+            logger.info(
+                "asr dropout watch fired: %.1fs of speech, no transcript within %.0fs",
+                self._speech_seconds,
+                self._grace,
+            )
             return True
         return False
 

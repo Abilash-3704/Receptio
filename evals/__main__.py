@@ -76,6 +76,8 @@ def main(
     scenarios = load_scenarios(args.scenarios, args.only.split(",") if args.only else None)
     if args.limit is not None:
         scenarios = scenarios[: args.limit]
+    if args.mode == "simulated":
+        scenarios = [with_turn_headroom(sc, settings.sim_turn_headroom) for sc in scenarios]
 
     ledger = Ledger()
     prices = settings.price_book(agent)
@@ -150,6 +152,13 @@ def dry_run(
     )  # fmt: skip
 
 
+def with_turn_headroom(scenario: Scenario, extra: int) -> Scenario:
+    expected = scenario.expected.model_copy(
+        update={"max_turns": scenario.expected.max_turns + extra}
+    )
+    return scenario.model_copy(update={"expected": expected})
+
+
 def run_simulated(
     scenarios: list[Scenario],
     persona: Any,
@@ -164,14 +173,21 @@ def run_simulated(
     from agent.anthropic_llm import AnthropicLLM
 
     metered = MeteredClient(client, ledger, prices, max_requests, max_cost)
-    llm = AnthropicLLM(metered, agent.llm_model, agent.llm_timeout_seconds)
+    llm = AnthropicLLM(  # as production builds it: fast model routing included
+        metered,
+        agent.llm_model,
+        agent.llm_timeout_seconds,
+        agent.llm_model_fast,
+        agent.llm_fast_planning,
+    )
 
     def caller_for(scenario: Scenario) -> SimulatedCaller:
         return SimulatedCaller(
             metered, settings.sim_model, persona, caller_goal(scenario), scenario.expected.max_turns
         )
 
-    return run_suite(scenarios, caller_for=caller_for, llm=llm)
+    # production tells the real LLM that the code does the read-back after place_hold
+    return run_suite(scenarios, caller_for=caller_for, llm=llm, auto_read_back=True)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from agent.llm import Say
+from agent.llm import Say, UseTool
 from agent.safety import EMERGENCY_SCRIPT
 from agent.scripted_llm import ScriptedLLM
 from agent.text_mode import DISCLOSURE, open_text_call
@@ -103,6 +103,9 @@ def test_driver_passes_the_core_turn_profile_to_the_timings() -> None:
     class Timings:
         def on_core_turn(self, seq: int) -> None: ...
         def on_llm_first_token(self, t: float) -> None: ...
+        def on_core_start(self) -> None: ...
+        def on_answer_text(self, t: float) -> None: ...
+        def on_core_done(self) -> None: ...
         def on_core_profile(self, **kw: Any) -> None:
             seen.update(kw)
 
@@ -111,7 +114,7 @@ def test_driver_passes_the_core_turn_profile_to_the_timings() -> None:
         caller_turn_seq = 2
         last_turn_profile = TurnProfile(llm_steps=2, llm_ms=1500, tool_ms=200, tools=["read_back"])
 
-        def hear(self, text: str) -> list[str]:
+        def hear(self, text: str, on_speak: Any = None) -> list[str]:
             return ["Hello there."]
 
     async def run() -> None:
@@ -122,3 +125,42 @@ def test_driver_passes_the_core_turn_profile_to_the_timings() -> None:
     asyncio.run(run())
 
     assert seen == {"llm_steps": 2, "llm_ms": 1500, "tool_ms": 200, "tools": ["read_back"]}
+
+
+def test_the_filler_is_handed_over_as_its_own_segment_before_the_answer(
+    backend: httpx.Client,
+) -> None:
+    from agent.llm import UseTool
+
+    llm = ScriptedLLM(
+        [UseTool("search_faq", {"question": "when are you open"}), Say("We open at nine.")]
+    )
+    call = open_text_call(backend, llm=llm)
+    driver = VoiceTurnDriver(call, TurnTimings(call.call_id, emit=lambda _line: None))
+
+    async def run() -> list[list[str]]:
+        return [segment async for segment in driver.segments("When do you open?")]
+
+    assert asyncio.run(run()) == [["Let me check that for you."], ["We open at nine."]]
+
+
+def test_a_filler_turn_is_written_when_the_answer_is_ready_with_both_times(
+    backend: httpx.Client,
+) -> None:
+    llm = ScriptedLLM([UseTool("search_faq", {"question": "hours"}), Say("We open at nine.")])
+    call = open_text_call(backend, llm=llm)
+    lines: list[dict[str, Any]] = []
+    timings = TurnTimings(call.call_id, emit=lambda line: lines.append(json.loads(line)))
+    driver = VoiceTurnDriver(call, timings, Ticking())
+    timings.on_asr_final(0.0)
+
+    async def run() -> None:
+        async for segment in driver.segments("When do you open?"):
+            if len(segment) and segment[0].startswith("Let me"):
+                timings.on_tts_first_audio(0.5)  # the filler is heard; the core is still working
+
+    asyncio.run(run())
+
+    assert len(lines) == 1
+    assert lines[0]["total_ms"] == 500
+    assert lines[0]["answer_ready_ms"] > lines[0]["total_ms"]

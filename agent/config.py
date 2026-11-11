@@ -26,5 +26,9 @@ class AgentSettings(BaseSettings):
     # The real LLM (agent/anthropic_llm.py). Never needed in text mode with the scripted LLM.
     anthropic_api_key: SecretStr | None = None
     llm_model: str = "claude-sonnet-5-5"  # main turns
-    llm_model_fast: str = "claude-haiku-5-5"  # simple turns (FAQ); not used yet
+    # Off by default: the fast model takes the planning steps too (which tool, what to ask next).
+    # Roughly twice as fast per request, but unproven on the booking flow: see the eval in
+    # docs/latency-investigation.md before turning it on.
+    llm_fast_planning: bool = False
+    llm_model_fast: str = "claude-haiku-5-5"  # wording a tool result (FAQ, confirm, cancel)
     llm_timeout_seconds: float = 15.0

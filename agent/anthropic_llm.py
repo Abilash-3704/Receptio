@@ -6,7 +6,7 @@ this module; the agent core and the tests do not."""
 
 import json
 import time
-from typing import Any
+from typing import Any, cast
 
 import anthropic
 
@@ -51,59 +51,177 @@ Call state:
 """
 
 
+# Steps that only put the result of a tool into words: no planning, so the fast model is enough.
+# (Writes are included because the tool already did the work; the guards still check the text.)
+FAST_AFTER_TOOLS = {"search_faq", "confirm_appointment", "cancel_appointment"}
+
+# These models think by default, and thinking tokens count against `max_tokens`. A receptionist
+# turn is a short reply or a tool call, so thinking only costs time (about a second and a half
+# per request) and can use the whole 400-token cap on reasoning, leaving no text and no tool
+# call (the Caller then hears "could you say that again"). Measured 2026-11-06: 2 of 8 requests
+# did exactly that with the defaults; with thinking off none did, and the median fell from 4.0 s
+# to 2.3 s. Each model has its own way to switch thinking off; a model not listed here is sent
+# no `thinking` setting at all, so its default applies.
+THINKING_OFF: dict[str, dict[str, str]] = {
+    "claude-sonnet-5-5": {"type": "between_tools"},  # "disabled" is a 400 on this model
+    "claude-haiku-5-5": {"type": "disabled"},
+}
+
+
+def last_tool_name(turn: LLMTurn) -> str | None:
+    """The tool whose result the model is about to answer, if the last message is one."""
+    if not turn.messages or turn.messages[-1].role != "tool":
+        return None
+    try:
+        payload = json.loads(turn.messages[-1].content)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    name: object = cast(dict[str, object], payload).get("tool")
+    return name if isinstance(name, str) else None
+
+
 class AnthropicLLM:
-    def __init__(self, client: Any, model: str, timeout_seconds: float) -> None:
+    def __init__(
+        self,
+        client: Any,
+        model: str,
+        timeout_seconds: float,
+        fast_model: str | None = None,
+        fast_planning: bool = False,
+    ) -> None:
         self._client = client
         self._model = model
+        self._fast_model = fast_model
+        self._fast_planning = fast_planning  # the fast model takes every step, not only wording
         self._timeout = timeout_seconds
         self.last_usage: LLMUsage | None = None
+
+    def _model_for(self, turn: LLMTurn) -> str:
+        if self._fast_model and (
+            self._fast_planning or last_tool_name(turn) in FAST_AFTER_TOOLS
+        ):
+            return self._fast_model
+        return self._model
+
+    def _request(self, turn: LLMTurn, model: str) -> dict[str, Any]:
+        request: dict[str, Any] = {
+            "model": model,
+            "max_tokens": 400,
+            "timeout": self._timeout,
+            "system": SYSTEM_PROMPT + json.dumps(turn.summary, indent=1),
+            "messages": to_api_messages(turn.messages),
+            "tools": [
+                {"name": t.name, "description": t.description, "input_schema": t.parameters}
+                for t in turn.tools
+            ],
+        }
+        if model in THINKING_OFF:
+            request["thinking"] = THINKING_OFF[model]
+        return request
 
     def next_step(self, turn: LLMTurn) -> Step:
         self.last_usage = None
         started = time.monotonic()
+        model = self._model_for(turn)
         try:
-            response = self._client.messages.create(
-                model=self._model,
-                max_tokens=400,
-                timeout=self._timeout,
-                system=SYSTEM_PROMPT + json.dumps(turn.summary, indent=1),
-                messages=to_api_messages(turn.messages),
-                tools=[
-                    {"name": t.name, "description": t.description, "input_schema": t.parameters}
-                    for t in turn.tools
-                ],
-            )
+            response = self._client.messages.create(**self._request(turn, model))
         except anthropic.APIError as exc:  # connection, timeout, rate limit, 5xx, bad request
             raise LLMError(type(exc).__name__) from exc  # the message could hold Call content
         usage = getattr(response, "usage", None)  # absent only from test stubs
         if usage is not None:
             self.last_usage = LLMUsage(
-                self._model,
+                model,
                 int(usage.input_tokens),
                 int(usage.output_tokens),
                 round((time.monotonic() - started) * 1000),
             )
         for block in response.content:
             if block.type == "tool_use":
+                # Any text written with a tool request is dropped, never spoken: with thinking
+                # off the model narrates its reasoning there ("the state shows I can confirm...,
+                # sorry, my last step was wrong"), which the Caller must not hear.
                 return UseTool(block.name, dict(block.input))
         text = " ".join(b.text for b in response.content if b.type == "text").strip()
         return Say(text or "Sorry, could you say that again?")
 
 
-def to_api_messages(messages: list[Message]) -> list[dict[str, str]]:
-    """The conversation as the API wants it: it must open with a user turn. Tool calls and
-    results are folded in as text; the state machine, not the transcript, is the memory."""
-    out: list[dict[str, str]] = [{"role": "user", "content": "(the call has connected)"}]
+def to_api_messages(messages: list[Message]) -> list[dict[str, Any]]:
+    """The conversation as the API wants it: it must open with a user turn. Tool calls go in as
+    real `tool_use` blocks and their results as `tool_result` blocks. (They were once flattened
+    into assistant text like "(tool call) {...}"; with thinking off the model copied that format
+    into its replies and the Caller heard it, with no tool run.) The state machine, not the
+    transcript, is the memory."""
+    out: list[dict[str, Any]] = [
+        {"role": "user", "content": [{"type": "text", "text": "(the call has connected)"}]}
+    ]
+    pending: list[tuple[str, str]] = []  # (id, tool name): called, no result given yet
+    results: dict[str, tuple[str, bool]] = {}  # id -> (result text, is it an error)
+
+    def add(role: str, block: dict[str, Any]) -> None:
+        if out[-1]["role"] == role:
+            out[-1]["content"].append(block)  # same speaker twice in a row: one turn
+        else:
+            out.append({"role": role, "content": [block]})
+
+    def flush() -> None:
+        """Answer every tool call still waiting for a result (one the core never gave one to:
+        its reply was spoken straight to the Caller)."""
+        for tool_id, _ in pending:
+            text, is_error = results.get(tool_id, ("done; the Caller was told", False))
+            block: dict[str, Any] = {"type": "tool_result", "tool_use_id": tool_id, "content": text}
+            if is_error:
+                block["is_error"] = True
+            add("user", block)
+        pending.clear()
+        results.clear()
+
     for m in messages:
         if m.role == "caller":
-            out.append({"role": "user", "content": m.content})
+            flush()
+            add("user", {"type": "text", "text": m.content or "(silence)"})
         elif m.role == "agent":
-            out.append({"role": "assistant", "content": m.content})
+            if m.content.strip():  # the API refuses an empty text block
+                add("assistant", {"type": "text", "text": m.content})
         elif m.role == "tool_call":
-            out.append({"role": "assistant", "content": f"(tool call) {m.content}"})
-        else:
-            out.append({"role": "user", "content": f"(tool result) {m.content}"})
+            call = _as_dict(m.content)
+            tool_id = f"toolu_{_next_id(out)}"
+            add(
+                "assistant",
+                {
+                    "type": "tool_use",
+                    "id": tool_id,
+                    "name": str(call.get("tool", "unknown")),
+                    "input": call.get("args") if isinstance(call.get("args"), dict) else {},
+                },
+            )
+            pending.append((tool_id, str(call.get("tool", "unknown"))))
+        else:  # a tool's result, or a note from the core (an error with no tool name)
+            payload = _as_dict(m.content)
+            name = payload.get("tool")
+            match = next((p for p in pending if p[1] == name and p[0] not in results), None)
+            if match is None:
+                flush()
+                add("user", {"type": "text", "text": f"(note from the system) {m.content}"})
+            else:
+                results[match[0]] = (m.content, payload.get("ok") is False)
+                if all(p[0] in results for p in pending):
+                    flush()
+    flush()
     return out
+
+
+def _next_id(out: list[dict[str, Any]]) -> str:
+    return f"{sum(1 for m in out for b in m['content'] if b['type'] == 'tool_use') + 1:04d}"
+
+
+def _as_dict(text: str) -> dict[str, Any]:
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return {}
+    return cast(dict[str, Any], value) if isinstance(value, dict) else {}
 
 
 def make_anthropic_llm(settings: AgentSettings) -> AnthropicLLM:
@@ -112,4 +230,10 @@ def make_anthropic_llm(settings: AgentSettings) -> AnthropicLLM:
     client = anthropic.Anthropic(
         api_key=settings.anthropic_api_key.get_secret_value(), max_retries=1
     )
-    return AnthropicLLM(client, settings.llm_model, settings.llm_timeout_seconds)
+    return AnthropicLLM(
+        client,
+        settings.llm_model,
+        settings.llm_timeout_seconds,
+        settings.llm_model_fast,
+        settings.llm_fast_planning,
+    )

@@ -4,15 +4,16 @@ The pipeline hands over the recognised text; the driver runs the same `TextCall.
 mode (safety detector first, code-recorded read-back yes, Escalation rules, time and price
 guards) and yields the reply sentence by sentence so speech synthesis can start on the first.
 
-The agent core answers a whole step at a time, because its guards must see the full text before
-the Caller hears any of it (a time Availability did not return is withheld, not spoken). So the
-LLM's reply is complete before the first sentence is yielded, and the "LLM first token" moment
-the timing record logs is when the first sentence of the reply became available."""
+The core hands each piece of the reply over as soon as it is ready (a fixed phrase while a tool
+runs, then the model's answer once the whole step has passed the guards: a time Availability did
+not return is withheld, not spoken). The "LLM first token" moment the timing record logs is when
+the first piece became available to speak."""
 
 import asyncio
 import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
 
 from agent.text_mode import TextCall
 from voice.timing import TurnTimings
@@ -22,6 +23,17 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 def split_sentences(text: str) -> list[str]:
     return [s for s in _SENTENCE_END.split(text.strip()) if s]
+
+
+@dataclass(frozen=True)
+class _Snapshot:
+    """The core's profile at one moment: when speech began, or when the turn ended."""
+
+    caller_turn: int
+    llm_steps: int
+    llm_ms: int
+    tool_ms: int
+    tools: list[str]
 
 
 class VoiceTurnDriver:
@@ -40,24 +52,89 @@ class VoiceTurnDriver:
         return self._call.call_id
 
     async def reply(self, caller_text: str) -> AsyncIterator[str]:
-        # The core is synchronous (blocking LLM and backend calls): keep the event loop free so
-        # audio keeps flowing and the Caller can still barge in.
-        spoken = await asyncio.to_thread(self._call.hear, caller_text)
-        self._timings.on_core_turn(self._call.caller_turn_seq)
-        profile = self._call.last_turn_profile
-        self._timings.on_core_profile(
-            llm_steps=profile.llm_steps,
-            llm_ms=profile.llm_ms,
-            tool_ms=profile.tool_ms,
-            tools=list(profile.tools),
-        )
-        first = True
-        for utterance in spoken:
-            for sentence in split_sentences(utterance):
-                if first:
-                    self._timings.on_llm_first_token(self._clock())
-                    first = False
+        """The reply, sentence by sentence."""
+        async for segment in self.segments(caller_text):
+            for sentence in segment:
                 yield sentence
+
+    async def segments(self, caller_text: str) -> AsyncIterator[list[str]]:
+        """The reply as the pieces the core handed over, each a list of sentences. A piece is
+        something the Caller should hear now, whatever follows: a sentence the model has just
+        written, or "Let me look that up" before a tool call. The pipeline speaks each piece at
+        once (see ReceptioAgent.llm_node); left to buffer, speech synthesis holds a lone
+        sentence until more text arrives, so that line would only be heard after the answer."""
+        # The core is synchronous (blocking LLM and backend calls): keep the event loop free so
+        # audio keeps flowing and the Caller can still barge in. It runs in a thread and hands
+        # each piece of the reply over the moment it is ready, so speech synthesis starts on the
+        # first sentence while the model is still writing the rest.
+        loop = asyncio.get_running_loop()
+        pieces: asyncio.Queue[tuple[str, _Snapshot | None] | None] = asyncio.Queue()
+        stopped = False  # the Caller barged in or the Call ended: stop feeding the pipeline
+        first = True
+
+        def emit(text: str) -> None:  # runs in the core's thread
+            nonlocal first
+            if stopped:
+                return
+            snapshot = None
+            if first:
+                first = False
+                snapshot = self._snapshot()  # what the profile holds as speech begins
+            loop.call_soon_threadsafe(pieces.put_nowait, (text, snapshot))
+
+        def run() -> list[str]:
+            try:
+                return self._call.hear(caller_text, emit)
+            finally:
+                loop.call_soon_threadsafe(pieces.put_nowait, None)
+
+        self._timings.on_core_start()
+        core = asyncio.ensure_future(asyncio.to_thread(run))
+        marked = False  # the first sentence has been marked as the "first text" moment
+        try:
+            while (piece := await pieces.get()) is not None:
+                text, snapshot = piece
+                if snapshot is not None:
+                    self._report(snapshot)
+                if sentences := split_sentences(text):
+                    if not marked:
+                        self._timings.on_llm_first_token(self._clock())
+                        marked = True
+                    self._timings.on_answer_text(self._clock())
+                    yield sentences
+            spoken = await core  # raises what the core raised
+            if first:  # nothing was handed over live (e.g. staff have the Call, or the reply
+                # came back whole): report the turn, and speak whatever the core returned
+                self._report(self._snapshot())
+                for utterance in spoken:
+                    if sentences := split_sentences(utterance):
+                        if not marked:
+                            self._timings.on_llm_first_token(self._clock())
+                            marked = True
+                        self._timings.on_answer_text(self._clock())
+                        yield sentences
+        finally:
+            stopped = True
+            self._timings.on_core_done()
+
+    def _snapshot(self) -> "_Snapshot":
+        profile = self._call.last_turn_profile
+        return _Snapshot(
+            self._call.caller_turn_seq,
+            profile.llm_steps,
+            profile.llm_ms,
+            profile.tool_ms,
+            list(profile.tools),
+        )
+
+    def _report(self, snapshot: "_Snapshot") -> None:
+        self._timings.on_core_turn(snapshot.caller_turn)
+        self._timings.on_core_profile(
+            llm_steps=snapshot.llm_steps,
+            llm_ms=snapshot.llm_ms,
+            tool_ms=snapshot.tool_ms,
+            tools=snapshot.tools,
+        )
 
     @property
     def expired(self) -> bool:

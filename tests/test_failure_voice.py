@@ -237,10 +237,10 @@ def test_speech_heard_while_the_agent_is_talking_is_not_a_dropout() -> None:
     # The agent's own voice leaking into the microphone looks like a Caller who spoke and left
     # no text. It must not make the agent apologise for not catching something.
     watch = AsrDropoutWatch(min_speech_seconds=1.0, grace_seconds=4.0)
-    watch.on_agent_speaking(True)
+    watch.on_agent_speaking(True, 9.0)
     watch.on_speech_start(10.0)
     watch.on_speech_end(14.0)
-    watch.on_agent_speaking(False)
+    watch.on_agent_speaking(False, 15.0)
 
     assert not watch.due(60.0)
 
@@ -248,17 +248,17 @@ def test_speech_heard_while_the_agent_is_talking_is_not_a_dropout() -> None:
 def test_speech_that_began_before_the_agent_started_talking_is_discarded_too() -> None:
     watch = AsrDropoutWatch(min_speech_seconds=1.0, grace_seconds=4.0)
     watch.on_speech_start(10.0)
-    watch.on_agent_speaking(True)  # the agent started: what the detector hears is its echo
+    watch.on_agent_speaking(True, 11.0)  # the agent started: what the detector hears is its echo
     watch.on_speech_end(14.0)
-    watch.on_agent_speaking(False)
+    watch.on_agent_speaking(False, 15.0)
 
     assert not watch.due(60.0)
 
 
 def test_a_dropout_after_the_agent_has_finished_still_counts() -> None:
     watch = AsrDropoutWatch(min_speech_seconds=1.0, grace_seconds=4.0)
-    watch.on_agent_speaking(True)
-    watch.on_agent_speaking(False)
+    watch.on_agent_speaking(True, 10.0)
+    watch.on_agent_speaking(False, 15.0)
     watch.on_speech_start(20.0)
     watch.on_speech_end(23.0)
 
@@ -269,6 +269,29 @@ def test_the_agent_starting_to_talk_cancels_a_pending_dropout() -> None:
     watch = AsrDropoutWatch(min_speech_seconds=1.0, grace_seconds=4.0)
     watch.on_speech_start(10.0)
     watch.on_speech_end(13.0)
-    watch.on_agent_speaking(True)  # the agent is already replying: nothing was lost
+    watch.on_agent_speaking(True, 14.0)  # the agent is already replying: nothing was lost
 
     assert not watch.due(60.0)
+
+
+def test_text_that_arrives_before_the_speech_end_is_not_a_dropout() -> None:
+    watch = AsrDropoutWatch(min_speech_seconds=1.0, grace_seconds=4.0)
+    watch.on_speech_start(10.0)
+    watch.on_text()  # the recogniser finalises first: the usual order
+    watch.on_speech_end(13.0)
+    assert not watch.due(60.0)
+
+
+def test_speech_right_after_the_agent_stops_is_its_echo_not_a_dropout() -> None:
+    watch = AsrDropoutWatch(min_speech_seconds=1.0, grace_seconds=4.0, echo_holdoff_seconds=1.0)
+    watch.on_agent_speaking(True, 10.0)
+    watch.on_agent_speaking(False, 15.0)
+    watch.on_speech_start(15.5)  # inside the holdoff: echo draining out
+    watch.on_speech_end(18.0)
+
+    assert not watch.due(60.0)
+
+    watch.on_speech_start(16.5)  # after it: a Caller whose words were lost still counts
+    watch.on_speech_end(19.0)
+
+    assert watch.due(23.0)

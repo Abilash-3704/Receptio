@@ -11,7 +11,9 @@ Targets are in `docs/metrics.md`; the prompt and model history is in `CHANGELOG.
   Callers well". It does not call a model and does not exercise the system prompt.
 - **There are no improvement cycles in this report, on purpose.** A before-and-after comparison
   needs a run in which the model's behaviour can change, that is a real-LLM run
-  (`--mode simulated`). That needs `ANTHROPIC_API_KEY` and costs money, and none has been made.
+  (`--mode simulated`). That needs `ANTHROPIC_API_KEY` and costs money. One small comparison was
+  made on 2026-11-11 (see "First real-model comparison: Sonnet against Haiku planning"); it is not
+  a full cycle: 18 scenarios, one persona, one run per setting.
   Scripted runs cannot show a prompt or model change helping or hurting, so any "cycle" built from
   them would be invented. Ticket 15's checkbox for two documented improvement cycles stays open
   until a real-model run exists (see "How to produce the first real cycle").
@@ -190,4 +192,38 @@ complete.
 4. Make one prompt or model change, rerun the same personas, and record both runs' numbers in a
    new section here and in `CHANGELOG.md`. That is a cycle. Do two or three.
 
-Not run, so no numbers: nothing in this report was measured with a real model.
+## First real-model comparison: Sonnet against Haiku planning (2026-11-11)
+
+Question: can the fast model (Haiku 5.5) make the planning decisions (which tool, what to ask next,
+whether a reply is a yes) instead of Sonnet 5.5? It is about twice as fast per request.
+
+Setup: `--mode simulated --persona patient`, 18 scenarios chosen to stress planning (bookings,
+cancel, reschedule, FAQ, hedged yes, handoff, urgent mid-booking), one run per setting, real API.
+The only difference is `LLM_FAST_PLANNING` (false: Sonnet plans, Haiku only words tool results;
+true: Haiku plans too). The raw reports were not kept in the repository; this section is the record.
+
+| | Sonnet planning | Haiku planning |
+|---|---|---|
+| Scenarios completed | 14 of 18 (77.8%) | 10 of 18 (55.6%) |
+| Cost (placeholder prices) | 1.27 USD | 0.56 USD |
+
+- Haiku failed ordinary bookings that Sonnet completed (happy path, exact time, reschedule after an
+  expired hold) and recorded no escalation for a wrong-identity cancel.
+- Both failed: `probe_yes_cancel_it_015` (cancel not recorded), `off_topic_then_books_015` (the
+  system-prompt detector fires on the words "full name"; likely a false positive), and
+  `human_requested_mid_booking_015` (crash: the simulated Caller gave a 7-digit number, and the
+  backend answers 422 to the escalation).
+- Decision: Haiku does not plan; `llm_fast_planning` stays off (default).
+- Limits: one run per setting. A first run before the harness fixes gave 11 and 10 of 18, so a
+  difference of a scenario or two is noise; a gap of four is probably real. Not the full 114
+  scenarios (about 7 USD for Sonnet), not the other personas, and the scripted CI gate is unchanged.
+
+Harness fixes made to get a usable comparison (before them, no booking completed under either
+model): the scenarios' `max_turns` assume the terse scripted Caller, so simulated runs get
+`EVAL_SIM_TURN_HEADROOM` (default 4) extra turns; the simulated Caller answers a read-back with a
+short yes, since a yes that restates the details is refused twice by design (ADR-0001) and ends in
+a handoff; it hangs up when the agent says nothing back (the API rejects a request ending on its
+own turn); a crashed scenario counts as a failure instead of aborting the run; and the LLM is
+built as production builds it (fast model, chained `read_back`).
+
+Everything else in this report was not measured with a real model.

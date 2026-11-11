@@ -22,6 +22,10 @@ class EvalSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="EVAL_", extra="ignore")
 
     # The model that plays the simulated Caller (a cheap one is enough).
+    # The scenarios' max_turns assume the terse scripted Caller. A real model asks one question at
+    # a time (and may ask again after a refused yes), so simulated runs get this many extra turns,
+    # for the Caller's limit and for the turn-count check alike.
+    sim_turn_headroom: int = 4
     sim_model: str = "claude-haiku-5-5"
 
     # USD per million tokens. PLACEHOLDER defaults (see the module docstring).

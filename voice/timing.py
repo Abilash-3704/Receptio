@@ -8,6 +8,9 @@ activity detector's end of Caller speech, the speech-recognition final, the firs
   before the VAD's silence window closed, which is the usual order.
 - `llm_first_token_ms`: ASR final to the first agent text (the core answers a whole step at once).
 - `tts_first_audio_ms`: first agent text to first agent audio.
+- `answer_ready_ms`: ASR final to the last piece of speech the core handed over, the answer. It
+  equals `llm_first_token_ms` unless a filler ("Let me check that for you.") went first; then
+  `total_ms` is flattered by the filler and this is the time the Caller waits for the answer.
 - `total_ms`: ASR final to first agent audio, the latency definition in docs/metrics.md. It is
   `llm_first_token_ms + tts_first_audio_ms`.
 - `total_from_speech_end_ms`: VAD end of speech to first agent audio, a stricter reading that
@@ -41,6 +44,9 @@ class TurnTimings:
         self._asr_final: float | None = None
         self._llm_first: float | None = None
         self._core_turn: int | None = None
+        self._answer: float | None = None
+        self._core_running = False
+        self._audio: float | None = None
         self._profile: dict[str, object] = {}
         self._pending = False
 
@@ -74,9 +80,27 @@ class TurnTimings:
         if self._pending and self._llm_first is None:
             self._llm_first = t
 
-    def on_tts_first_audio(self, t: float) -> None:
+    def on_core_start(self) -> None:
+        self._core_running = True
+
+    def on_answer_text(self, t: float) -> None:
+        """The core handed over a piece of speech. The last one is the answer itself."""
         if self._pending:
-            self._flush(t, interrupted=False)
+            self._answer = t
+
+    def on_core_done(self) -> None:
+        """The core finished the turn. A line held back for its answer time is written now."""
+        self._core_running = False
+        if self._pending and self._audio is not None:
+            self._flush(self._audio, interrupted=False)
+
+    def on_tts_first_audio(self, t: float) -> None:
+        if not self._pending:
+            return
+        if self._core_running:
+            self._audio = t  # the first words (a filler) are out; wait to learn the answer time
+            return
+        self._flush(t, interrupted=False)
 
     def on_user_speech_start(self, t: float) -> None:  # noqa: ARG002
         """The Caller spoke before the agent made a sound: that turn never got a reply."""
@@ -93,6 +117,7 @@ class TurnTimings:
 
     def _flush(self, audio: float | None, interrupted: bool) -> None:
         asr, llm, vad = self._asr_final, self._llm_first, self._speech_end
+        answer = self._answer
         origin = asr if asr is not None else vad
         assert origin is not None
         self._turn += 1
@@ -104,6 +129,7 @@ class TurnTimings:
             "asr_final_ms": None if asr is None or vad is None else _ms(vad, asr),
             "llm_first_token_ms": None if llm is None else _ms(origin, llm),
             "tts_first_audio_ms": None if llm is None or audio is None else _ms(llm, audio),
+            "answer_ready_ms": None if answer is None else _ms(origin, answer),
             "total_ms": None if audio is None else _ms(origin, audio),
             "total_from_speech_end_ms": None if vad is None or audio is None else _ms(vad, audio),
             "interrupted": interrupted,

@@ -60,13 +60,18 @@ def explain_refusal(status_code: int) -> str | None:
 
 
 def open_call_or_explain(
-    backend: httpx.Client, llm: LLM | None = None, limits: CallLimits | None = None
+    backend: httpx.Client,
+    llm: LLM | None = None,
+    limits: CallLimits | None = None,
+    auto_read_back: bool = False,
 ) -> TextCall | None:
     """Open the Call's record, or log one clear line and return None when the backend refuses the
     worker's credentials (a configuration fault, not something a retry fixes). Any other failure
     still raises."""
     try:
-        return open_text_call(backend, llm=llm, limits=limits, mode="voice")
+        return open_text_call(
+            backend, llm=llm, limits=limits, mode="voice", auto_read_back=auto_read_back
+        )
     except httpx.HTTPStatusError as error:
         reason = explain_refusal(error.response.status_code)
         if reason is None:

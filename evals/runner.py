@@ -150,6 +150,7 @@ def run_scenario(
     clock: Clock = system_clock,
     llm: LLM | None = None,
     caller: SimulatedCaller | None = None,
+    auto_read_back: bool = False,
 ) -> ScenarioResult:
     """Play one scenario. By default the scripted LLM replays `agent_script` and the Caller says
     the scripted `turns`. Pass `llm` to replace the agent's LLM and `caller` to replace the
@@ -162,7 +163,9 @@ def run_scenario(
         backend.put("/demo/clinic-override", json={"mode": scenario.clinic}).raise_for_status()
     try:
         clinic_open: bool = backend.get("/clinic-status").json()["open"]
-        call: TextCall = open_text_call(backend, llm=llm, clock=clock)
+        call: TextCall = open_text_call(
+            backend, llm=llm, clock=clock, auto_read_back=auto_read_back
+        )
         if caller is None:
             for index, text in enumerate(scenario.turns[: scenario.expected.max_turns]):
                 advance(clock, scenario.advance_minutes.get(index, 0))

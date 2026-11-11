@@ -12,6 +12,7 @@ STAGES = (
     "asr_final_ms",
     "llm_first_token_ms",
     "tts_first_audio_ms",
+    "answer_ready_ms",
     "total_ms",
     "total_from_speech_end_ms",
 )
@@ -89,6 +90,7 @@ def render(summary: Summary) -> str:
         if stats:
             out.append(f"{stage:<26} {stats.n:>4} {stats.p50:>9} {stats.p95:>9}")
     out.append(
+        "answer_ready_ms = ASR final to the answer (not the filler before it); "
         "total_ms = ASR final to first agent audio (docs/metrics.md); "
         "total_from_speech_end_ms = VAD end of speech to first agent audio."
     )

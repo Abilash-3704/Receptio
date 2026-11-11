@@ -79,6 +79,7 @@ def run_suite(
     fresh_backend: FreshBackend = sqlite_backend,
     caller_for: Callable[[Scenario], SimulatedCaller] | None = None,
     llm: LLM | None = None,
+    auto_read_back: bool = False,
 ) -> Suite:
     """Each scenario on its own fresh backend and database. A scenario that crashes the agent (for
     example a scripted LLM consulted after the safety turn) counts as a failure. A spend cap
@@ -90,11 +91,14 @@ def run_suite(
         try:
             with fresh_backend() as (backend, session_factory, clock):
                 result = run_scenario(
-                    scenario, backend, session_factory, clock, llm=llm, caller=caller
-                )
+                    scenario, backend, session_factory, clock, llm=llm, caller=caller,
+                    auto_read_back=auto_read_back,
+                )  # fmt: skip
         except BudgetExceeded as exc:
             return Suite(runs, aborted=str(exc))
         except AssertionError as exc:
             result = ScenarioResult(scenario.id, [f"agent error: {exc}"], "none")
+        except Exception as exc:  # noqa: BLE001  one crashed scenario is a failure, not an abort
+            result = ScenarioResult(scenario.id, [f"agent crashed: {type(exc).__name__}"], "none")
         runs.append((scenario, result))
     return Suite(runs)

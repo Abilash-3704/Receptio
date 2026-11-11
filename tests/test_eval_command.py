@@ -78,7 +78,10 @@ def test_a_dry_run_prints_the_spend_and_needs_neither_key_nor_client(tmp_path: P
     assert not run.clients and not run.reports.exists()
 
 
-def test_a_simulated_run_uses_the_fake_client_and_reports_cost_and_persona(tmp_path: Path) -> None:
+def test_a_simulated_run_uses_the_fake_client_and_reports_cost_and_persona(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EVAL_SIM_TURN_HEADROOM", "0")  # the scenario's own turn limit
     run = Run(tmp_path, env={"ANTHROPIC_API_KEY": "sk-test-not-real"})
 
     code = run(
@@ -104,7 +107,10 @@ def test_a_simulated_run_uses_the_fake_client_and_reports_cost_and_persona(tmp_p
     assert "sk-test-not-real" not in (run.reports / "metrics-simulated.json").read_text()
 
 
-def test_the_request_cap_aborts_the_run_and_the_report_says_so(tmp_path: Path) -> None:
+def test_the_request_cap_aborts_the_run_and_the_report_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EVAL_SIM_TURN_HEADROOM", "0")  # the scenario's own turn limit
     run = Run(tmp_path, env={"ANTHROPIC_API_KEY": "sk-test-not-real"})
 
     code = run(
@@ -165,3 +171,23 @@ def test_the_committed_scripted_baseline_still_holds(tmp_path: Path) -> None:
     code = main(["--check-baseline", "--reports-dir", str(tmp_path)], env={}, out=output.append)
 
     assert code == 0, "\n".join(output[-5:])
+
+
+def test_simulated_runs_give_the_caller_extra_turns_beyond_the_scenarios_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EVAL_SIM_TURN_HEADROOM", "1")
+    run = Run(tmp_path, env={"ANTHROPIC_API_KEY": "sk-test-not-real"})
+
+    run(
+        "--mode",
+        "simulated",
+        "--only",
+        "emergency_chest_pain",
+        "--persona",
+        "hostile",
+        responder=replies(CHEST_PAIN, "Still here."),
+    )
+
+    report = json.loads((run.reports / "metrics-simulated.json").read_text())
+    assert report["cost"]["requests"] == 2  # the scenario's one Caller turn, plus one extra

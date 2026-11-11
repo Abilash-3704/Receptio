@@ -92,6 +92,20 @@ class TurnProfile:
 
 MAX_STEPS_PER_TURN = 8
 STUCK = "I'm sorry, I'm having trouble with that. Could you say it again?"
+# A tool call or result written out as text. The LLM does this when it copies how the transcript
+# used to show them; it must never be spoken.
+TOOL_TALK = re.compile(r"\(\s*tool[ _](?:call|result)\s*\)|\{\s*\"tool\"\s*:", re.IGNORECASE)
+# What the code says, in a voice Call, while a slow tool call and the model's next request run. Only
+# tools whose result the Caller is waiting on, and no claim that anything was done: "book" would
+# be wrong when the code refuses the confirm.
+TOOL_FILLER = {
+    "search_faq": "Let me check that for you.",
+    "check_availability": "Let me check the schedule.",
+    "identify_patient": "Let me look that up.",
+    "record_patient": "One moment.",
+    "confirm_appointment": "One moment.",
+    "cancel_appointment": "One moment.",
+}
 # Tools whose unanswered request leaves a booking or cancellation in an unknown state.
 OUTCOME_UNKNOWN_TOOLS = {"confirm_appointment", "cancel_appointment"}
 
@@ -137,8 +151,12 @@ class TextCall:
         llm: LLM | None = None,
         clock: Clock = system_clock,
         limits: CallLimits | None = None,
+        auto_read_back: bool = False,
     ) -> None:
         self._backend = backend
+        # Read the hold back right after place_hold without asking the LLM for it. Off by
+        # default: scripted LLMs ask for read_back themselves.
+        self._auto_read_back = auto_read_back
         self._clock = clock
         self._limits = limits
         self._started = clock()
@@ -149,6 +167,8 @@ class TextCall:
         self.transcript: list[Turn] = []
         self.tool_calls: list[ToolCall] = []
         self.last_turn_profile = TurnProfile()
+        # Set only while `hear` runs with an `on_speak`: where speech goes as soon as it is ready.
+        self._live: Callable[[str], None] | None = None
         self._state = CallState()
         self._tools = ToolBox(backend, call_id, self._state, clock)
         self._messages: list[Message] = []
@@ -216,18 +236,31 @@ class TextCall:
         with self._lock:
             return self._limit_speech()
 
-    def hear(self, caller_text: str) -> list[str]:
-        """The Caller says something. Returns what the Caller hears in reply."""
+    def hear(self, caller_text: str, on_speak: Callable[[str], None] | None = None) -> list[str]:
+        """The Caller says something. Returns what the Caller hears in reply.
+
+        With `on_speak`, each piece of the reply is also handed to it the moment it is ready
+        (the voice pipeline starts speaking then), and a streaming LLM's sentences go out as
+        they are written instead of after the whole step. The returned list is the same either
+        way: what was said, one entry per stored agent turn."""
         assert self._llm is not None, "this Call has no LLM"
         with self._lock:
-            self.last_turn_profile = TurnProfile()
-            if self._state.limit_reached or (
-                self._limits is not None and self._elapsed() >= self._limits.max_seconds
-            ):
-                self.say("caller", caller_text)
-                # Closed: say so (again), never silence, and never consult the LLM.
-                return self._limit_speech() or [CLOSING_SPEECH]
-            return self._turn(caller_text) + self._limit_speech()
+            self._live = on_speak
+            try:
+                self.last_turn_profile = TurnProfile()
+                if self._state.limit_reached or (
+                    self._limits is not None and self._elapsed() >= self._limits.max_seconds
+                ):
+                    self.say("caller", caller_text)
+                    # Closed: say so (again), never silence, and never consult the LLM.
+                    closing = self._limit_speech()
+                    if not closing:
+                        closing = [CLOSING_SPEECH]
+                        self._voice(CLOSING_SPEECH)
+                    return closing
+                return self._turn(caller_text) + self._limit_speech()
+            finally:
+                self._live = None
 
     def _turn(self, caller_text: str) -> list[str]:
         assert self._llm is not None, "this Call has no LLM"
@@ -287,41 +320,22 @@ class TextCall:
             if step is None:
                 return spoken  # the LLM is down: the Caller has been offered staff
             if isinstance(step, Say):
-                facts = self._state.known_facts
-                if set(unoffered_times(step.text, self._state.ever_offered)) - known_clock_times(
-                    facts
-                ):
-                    # Withheld: the Caller never hears a time Availability did not return.
-                    error = {"error": "you named a time that Availability did not return"}
-                    self._messages.append(Message("tool", json.dumps(error)))
-                    continue
-                if unknown_amounts(step.text, facts):
-                    # Withheld: only price ranges that search_faq returned may be said.
-                    error = {"error": "you named a price that search_faq did not return"}
-                    self._messages.append(Message("tool", json.dumps(error)))
+                reason = self._withheld(step.text)
+                if reason is not None:
+                    # Withheld: the Caller never hears a time or price the tools did not return,
+                    # nor a tool call written out as text.
+                    self._messages.append(Message("tool", json.dumps({"error": reason})))
                     continue
                 self._speak(step.text, spoken)
                 return spoken
-            call_text = json.dumps({"tool": step.name, "args": step.args})
-            self._messages.append(Message("tool_call", call_text))
-            tool_started = time.monotonic()
-            result = self._run_tool(step, spoken)
-            self.last_turn_profile.tool_ms += round((time.monotonic() - tool_started) * 1000)
-            self.last_turn_profile.tools.append(step.name)
-            self.tool_calls.append(
-                ToolCall(step.name, step.args, result.ok, result.refused, result.data)
+            if self._live is not None and not spoken and step.name in TOOL_FILLER:
+                # The tool and the model's next request take a second or two: say something now.
+                # The words are the code's, never the model's (it narrates its reasoning there).
+                self._speak(TOOL_FILLER[step.name], spoken)
+            self._messages.append(
+                Message("tool_call", json.dumps({"tool": step.name, "args": step.args}))
             )
-            self._trace(
-                "tool-calls",
-                {
-                    "turn_seq": self._caller_turn_seq,
-                    "name": step.name,
-                    "args": step.args,
-                    "ok": result.ok,
-                    "refused": result.refused,
-                    "result": result.data,
-                },
-            )
+            result = self._run_and_record(step, spoken)
             if result.unavailable:
                 # The clinic system did not answer, twice. Whether it did the work is unknown,
                 # so nothing is claimed as done (fail closed); staff are offered instead.
@@ -338,10 +352,55 @@ class TextCall:
             if result.speak is not None:
                 self._speak(result.speak, spoken)
                 return spoken
+            if step.name == "place_hold" and result.ok and self._auto_read_back:
+                # The prompt's rule is "after place_hold, read_back", so the code does it: one
+                # fewer model round trip (about two seconds) before the Caller hears the read-back.
+                read_back = UseTool("read_back", {})
+                self._messages.append(
+                    Message("tool_call", json.dumps({"tool": "read_back", "args": {}}))
+                )
+                chained = self._run_and_record(read_back, spoken)
+                if chained.unavailable:
+                    self._offer_staff(
+                        unavailable_reason("read_back"),
+                        OFFER_AFTER_FAILURE,
+                        spoken,
+                    )
+                    return spoken
+                if chained.speak is not None:
+                    self._speak(chained.speak, spoken)
+                    return spoken
+                self._messages.append(
+                    Message("tool", json.dumps({"tool": "read_back", "ok": False, **chained.data}))
+                )
+                continue
             payload = {"tool": step.name, "ok": result.ok, **result.data}
             self._messages.append(Message("tool", json.dumps(payload)))
         self._speak(STUCK, spoken)
         return spoken
+
+    def _run_and_record(self, step: UseTool, spoken: list[str]) -> ToolResult:
+        """Run a tool the LLM asked for (or the core chained), and record it: timing, the list of
+        tool calls and the trace."""
+        tool_started = time.monotonic()
+        result = self._run_tool(step, spoken)
+        self.last_turn_profile.tool_ms += round((time.monotonic() - tool_started) * 1000)
+        self.last_turn_profile.tools.append(step.name)
+        self.tool_calls.append(
+            ToolCall(step.name, step.args, result.ok, result.refused, result.data)
+        )
+        self._trace(
+            "tool-calls",
+            {
+                "turn_seq": self._caller_turn_seq,
+                "name": step.name,
+                "args": step.args,
+                "ok": result.ok,
+                "refused": result.refused,
+                "result": result.data,
+            },
+        )
+        return result
 
     def _next_step(self, spoken: list[str]) -> Step | None:
         """Ask the LLM for the next step; if it fails, once more. Twice failing is an LLM outage:
@@ -349,15 +408,8 @@ class TextCall:
         Caller's answer to that offer are all code, so they work with the LLM down."""
         assert self._llm is not None
         for attempt in (1, 2):
-            started = time.monotonic()
-            try:
-                step = self._llm.next_step(
-                    LLMTurn(self._state.summary(), list(self._messages), TOOL_SPECS)
-                )
-                self.last_turn_profile.llm_steps += 1
-                self.last_turn_profile.llm_ms += round((time.monotonic() - started) * 1000)
-            except LLMError:
-                self.last_turn_profile.llm_ms += round((time.monotonic() - started) * 1000)
+            step = self._ask_llm()
+            if step is None:
                 logger.warning("call %s: the LLM failed (attempt %d)", self.call_id, attempt)
                 continue
             self._trace_usage()
@@ -366,6 +418,21 @@ class TextCall:
             return step
         self._offer_staff(LLM_DOWN_REASON, OFFER_AFTER_FAILURE, spoken)
         return None
+
+    def _ask_llm(self) -> Step | None:
+        """One request to the LLM, timed into the turn's profile. None if the provider failed."""
+        assert self._llm is not None
+        started = time.monotonic()
+        try:
+            step = self._llm.next_step(
+                LLMTurn(self._state.summary(), list(self._messages), TOOL_SPECS)
+            )
+        except LLMError:
+            self.last_turn_profile.llm_ms += round((time.monotonic() - started) * 1000)
+            return None
+        self.last_turn_profile.llm_steps += 1
+        self.last_turn_profile.llm_ms += round((time.monotonic() - started) * 1000)
+        return step
 
     def _run_tool(self, step: UseTool, spoken: list[str]) -> ToolResult:
         """Run a tool; if the clinic system did not answer, once more. A write is retried under
@@ -568,8 +635,32 @@ class TextCall:
         return spoken
 
     def _speak(self, text: str, spoken: list[str]) -> None:
+        """Store what the agent says and return it; voice it live too when the pipeline asked."""
         self.say("agent", text)
         spoken.append(text)
+        self._voice(text)
+
+    def _voice(self, text: str) -> None:
+        if self._live is not None:
+            self._live(text)
+
+    def _withheld(self, text: str) -> str | None:
+        """The output guards. Why `text` must not be spoken, as the error told to the LLM, or None
+        if it may: a clock time Availability did not return, a price search_faq did not return, or
+        the look of a tool call or result written out as speech (the Caller never hears those)."""
+        if TOOL_TALK.search(text):
+            return (
+                "that was not a tool call: use the tool, and say only what the Caller should hear"
+            )
+        facts = self._state.known_facts
+        if set(unoffered_times(text, self._state.ever_offered)) - known_clock_times(facts):
+            return "you named a time that Availability did not return"
+        if unknown_amounts(text, facts):
+            return "you named a price that search_faq did not return"
+        return None
+
+    def _guards_pass(self, text: str) -> bool:
+        return self._withheld(text) is None
 
     def _trace_usage(self) -> None:
         usage: LLMUsage | None = getattr(self._llm, "last_usage", None)
@@ -635,9 +726,10 @@ def open_text_call(
     clock: Clock = system_clock,
     limits: CallLimits | None = None,
     mode: Literal["text", "voice"] = "text",
+    auto_read_back: bool = False,
 ) -> TextCall:
     response = backend.post("/calls", json={"mode": mode})
     response.raise_for_status()
-    call = TextCall(backend, int(response.json()["id"]), llm, clock, limits)
+    call = TextCall(backend, int(response.json()["id"]), llm, clock, limits, auto_read_back)
     call.say("agent", DISCLOSURE)
     return call

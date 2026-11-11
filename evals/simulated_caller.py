@@ -24,6 +24,8 @@ Rules:
   quotation marks, no narration.
 - Use your own words. Give personal details (name, phone number, symptoms) only as the goal says,
   and make up nothing that contradicts the goal.
+- When the receptionist reads the details back and asks if they are right, and they are, reply
+  with a short yes ("yes, that's right"). Do not repeat the details back to it.
 - Answer what the receptionist actually asked. If it offers times, choose one that suits the goal.
 - When your goal is met, or you have given up, or you would hang up, finish with {hang_up} (you
   may say a short goodbye before it)."""
@@ -45,6 +47,11 @@ class SimulatedCaller:
         """What the Caller says next, or None if the Caller hangs up."""
         if self.hung_up or self._said >= self._limit:
             self.hung_up = True
+            return None
+        if transcript and transcript[-1].speaker == "caller":
+            self.hung_up = (
+                True  # the agent said nothing back (staff have the Call)
+            )
             return None
         response = self._client.messages.create(
             model=self._model,
