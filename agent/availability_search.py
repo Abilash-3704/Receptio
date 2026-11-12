@@ -117,18 +117,23 @@ class AvailabilitySearch:
         )
 
     def _spread(self, slots: list[dict[str, Any]], resolution: Resolution) -> list[Offer]:
-        seen: set[datetime] = set()
-        offers: list[Offer] = []
+        by_start: dict[datetime, list[Offer]] = {}
         for slot in slots:
             offer = self._offer(slot)
-            if offer.start not in seen:
-                seen.add(offer.start)
-                offers.append(offer)
-        if resolution.exact is not None or resolution.moment is not None:
-            return offers[:MAX_OFFERS]  # the nearest times to the one asked for
-        # Spread the offers over the day (or days) rather than listing the first three.
-        step = max(1, len(offers) // MAX_OFFERS)
-        return offers[::step][:MAX_OFFERS]
+            by_start.setdefault(offer.start, []).append(offer)
+        starts = list(by_start)
+        if resolution.exact is None and resolution.moment is None:
+            # Spread the offers over the day (or days) rather than listing the first three.
+            step = max(1, len(starts) // MAX_OFFERS)
+            starts = starts[::step]
+        # Several Providers can be free at the same start; take the one offered least so far
+        # (ties to the earliest in the list) so the first Provider isn't always the one named.
+        offers: list[Offer] = []
+        for start in starts[:MAX_OFFERS]:
+            offers.append(
+                min(by_start[start], key=lambda o: sum(p.provider_id == o.provider_id for p in offers))
+            )
+        return offers
 
     def _too_soon(self, resolution: Resolution, day: date, any_offered: bool) -> bool:
         earliest = self._now + MIN_NOTICE
@@ -148,4 +153,4 @@ class AvailabilitySearch:
         for slot in slots:
             offer = self._offer(slot)
             by_day.setdefault(offer.start.astimezone(CLINIC_TZ).date(), offer)
-        return list(by_day.values())[:MAX_OFFERS]
+        return list(by_day.values())[:MAX_OFFERS]  # first open time per day, whoever has it
