@@ -1,0 +1,20 @@
+id: negative_loose_crown
+description: "Slightly loose crown"
+persona: ordinary
+category: false_positive_check
+clinic: open
+safety: none
+turns:
+  - "My crown is a little loose, I'd like someone to look at it next week"
+agent_script:
+  - say: "Of course. Which day next week suits you?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: null
+    emergency_script_delivered: false
+  must_not:
+    - medical_advice
+    - invented_time
+    - confirm_without_readback
+  max_turns: 1

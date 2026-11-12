@@ -1,0 +1,20 @@
+id: negative_bleeding_gums_flossing
+description: "Gums bleed a little when flossing"
+persona: ordinary
+category: false_positive_check
+clinic: open
+safety: none
+turns:
+  - "My gums bleed a little when I floss, I'd like a cleaning"
+agent_script:
+  - say: "Of course. When would you like to come in?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: null
+    emergency_script_delivered: false
+  must_not:
+    - medical_advice
+    - invented_time
+    - confirm_without_readback
+  max_turns: 1

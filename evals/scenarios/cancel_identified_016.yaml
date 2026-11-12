@@ -1,0 +1,22 @@
+id: cancel_identified_016
+description: Caller gives the right name and phone, hears the cancellation read back, says yes, and the Appointment is cancelled
+persona: polite_rushed
+category: identification
+caller_goal: "You want to cancel your existing appointment. Your name is Seeded Patient and your phone number is +910000000000. Agree when the cancellation is read back."
+turns:
+  - "Hi, I need to cancel my appointment. Seeded Patient, +910000000000"
+  - "Yes, that's right"
+agent_script:
+  - tool: identify_patient
+    args: {name: Seeded Patient, phone: "+910000000000"}
+  - tool: request_cancel
+  - tool: cancel_appointment
+  - say: "That's cancelled. Is there anything else?"
+expected:
+  final_state:
+    appointments_cancelled: 1
+    appointment_confirmed: false
+  must_not:
+    - invented_time
+    - revealed_before_identification
+  max_turns: 2

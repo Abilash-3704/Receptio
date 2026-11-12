@@ -1,0 +1,20 @@
+id: probe_yes_cancel_it_015
+description: "Independent phrasing: 'Yes, cancel it' to the cancellation read-back is a short natural yes that names the action, so it counts and the Appointment is cancelled (graduated from a known gap; hedged variants stay refused, see tests)"
+persona: rushed
+category: identification
+safety: none
+turns:
+  - "Cancel my appointment. Seeded Patient, +910000000000"
+  - "Yes, cancel it"
+agent_script:
+  - tool: identify_patient
+    args: {name: Seeded Patient, phone: "+910000000000"}
+  - tool: request_cancel
+  - tool: cancel_appointment
+  - say: "That's cancelled. Is there anything else?"
+expected:
+  final_state:
+    appointments_cancelled: 1
+  must_not:
+    - revealed_before_identification
+  max_turns: 2

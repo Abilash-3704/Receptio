@@ -4,10 +4,10 @@
 
 **Blocked by:** 07: Escalation: Handoff, Callback Request, Clinic Hours and retry caps
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The Emergency script is fixed, versioned text and is the only thing said on that turn
-- [ ] An Emergency mid-booking abandons the flow and releases the Hold
-- [ ] An Urgent Case gets an Escalation and no 112 script, and no scheduling is attempted
-- [ ] No medical advice is given in either case
-- [ ] Scenarios assert Emergency recall of 100% and Urgent Case recall of at least 95%, with false positives tracked
+- [x] The Emergency script is fixed, versioned text and is the only thing said on that turn
+- [x] An Emergency mid-booking abandons the flow and releases the Hold
+- [x] An Urgent Case gets an Escalation and no 112 script, and no scheduling is attempted
+- [x] No medical advice is given in either case
+- [x] Scenarios assert Emergency recall of 100% and Urgent Case recall of at least 95%, with false positives tracked

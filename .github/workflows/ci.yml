@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # A real Postgres so the concurrency tests (tests/test_concurrency.py) run instead of being
+    # skipped, and the whole backend suite runs through the Alembic migrations. The tests drop
+    # and rebuild the `public` schema of this throwaway database for every test.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: receptio
+          POSTGRES_PASSWORD: receptio
+          POSTGRES_DB: receptio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U receptio"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://receptio:receptio@localhost:5432/receptio
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.6"
+      - run: uv sync --frozen --extra voice
+      - run: uv run ruff format --check agent backend evals loadtest tests voice
+      - run: uv run ruff check agent backend evals loadtest tests voice
+      - run: uv run pyright
+      # The compose file must stay valid. It refuses to render without BACKEND_SERVICE_TOKEN, so a
+      # placeholder (not a secret; nothing is started) stands in for the value .env provides.
+      - run: docker compose config --quiet
+        env:
+          BACKEND_SERVICE_TOKEN: ci-placeholder-not-a-secret
+      # -rs lists skips with reasons; with Postgres up, none should mention TEST_DATABASE_URL.
+      - run: uv run pytest -rs
+
+  # The scripted scenario suite as a regression gate (ticket 15). Deterministic, free, no network
+  # and no key: scripted LLM and scripted Caller. It fails when any gated metric is worse than the
+  # committed baseline (evals/baselines/scripted.json), when the suite shrinks, or when a target
+  # is missed (wrong-time rate 0, Emergency recall 100%, completion >= 90%, Urgent recall >= 95%).
+  # A real-LLM or simulated-Caller run is never run here: it needs a key and costs money. See
+  # "Manual real-model runs" in README.md.
+  scripted-evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.6"
+      - run: uv sync --frozen
+      - run: uv run python -m evals --mode scripted --check-baseline
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scripted-eval-report
+          path: evals/reports/

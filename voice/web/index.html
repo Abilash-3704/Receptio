@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receptio: call the clinic</title>
+<style>
+  :root { --bg: #222221; --card: #2c2d2f; --line: #4a4b4d; --fg: #f4f4ef; --muted: #a8a8a0;
+          --green: #a8e08a; --stop: #ff8a7a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 26rem; margin: 0 auto; padding: 2.5rem 20px 1.5rem; display: flex;
+         align-items: flex-start; gap: 2rem; }
+  /* Once the call starts the screen goes side by side: the call on the left, the transcript on
+     the right. Narrow screens stack them. */
+  main.live { max-width: 70rem; }
+  .call { flex: 0 0 24rem; max-width: 100%; min-height: calc(100vh - 4rem); display: flex;
+          flex-direction: column; align-items: center; text-align: center; }
+  main:not(.live) .call { flex-basis: 100%; }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 1.7rem; font-weight: 600; }
+  .tag { font-size: .8rem; font-weight: 700; letter-spacing: .08em; color: var(--muted);
+         margin-top: .3rem; }
+  .intro { color: var(--muted); font-size: .95rem; margin: 1.5rem 0 0; }
+  .orb { position: relative; width: 12rem; height: 12rem; margin: 2.5rem 0 1.5rem;
+         display: flex; align-items: center; justify-content: center; }
+  .orb i { position: absolute; border-radius: 50%; border: 1px solid #55684b; }
+  .orb i:nth-child(1) { inset: 0; border-color: #3a3b3a; }
+  .orb i:nth-child(2) { inset: 1.1rem; }
+  .orb i:nth-child(3) { inset: 2.2rem; background: #262826; }
+  .orb b { position: relative; width: 5.2rem; height: 5.2rem; border-radius: 50%;
+           background: var(--green); display: flex; align-items: center; justify-content: center;
+           gap: 4px; }
+  .orb b span { width: 6px; border-radius: 3px; background: #222; height: 1rem; }
+  .orb b span:nth-child(2) { height: 2rem; } .orb b span:nth-child(3) { height: 2.6rem; }
+  .orb b span:nth-child(4) { height: 1.8rem; }
+  .orb.idle b { background: #4a4b4d; }
+  .orb.speaking i:nth-child(1) { animation: pulse 2s ease-out infinite; }
+  .orb.speaking i:nth-child(2) { animation: pulse 2s ease-out .4s infinite; }
+  .orb.listening i:nth-child(2) { animation: pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 50% { transform: scale(1.04); } }
+  @media (prefers-reduced-motion: reduce) { .orb i { animation: none !important; } }
+  #state { font-size: 2.2rem; font-weight: 500; margin: 0; }
+  #clock { font: .95rem ui-monospace, Menlo, monospace; color: var(--muted); height: 1.4rem; }
+  .caption { width: 100%; text-align: left; background: var(--card); border: 1px solid var(--line);
+             border-radius: 1rem; padding: 1rem 1.2rem; margin-top: 1.2rem; min-height: 5.5rem; }
+  .caption h2 { margin: 0 0 .3rem; font-size: .8rem; letter-spacing: .08em; color: var(--green); }
+  .caption p { margin: 0; font-size: 1.15rem; line-height: 1.45; }
+  .controls { display: flex; align-items: center; justify-content: center; gap: 1.2rem;
+              margin: 2rem 0 1rem; }
+  button { font: inherit; cursor: pointer; color: var(--fg); background: transparent;
+           border: 1px solid var(--line); border-radius: 999px; }
+  button:disabled { opacity: .5; cursor: default; }
+  #toggle { padding: .9rem 2.2rem; font-weight: 600; background: var(--green); color: #222;
+            border: 0; font-size: 1.1rem; }
+  #toggle.stop { background: var(--stop); }
+  #mute { width: 3.4rem; height: 3.4rem; padding: 0; }
+  #mute.on { background: #3a3b3d; color: var(--stop); }
+  #notice { border: 1px solid var(--stop); color: var(--stop); border-radius: .8rem;
+            padding: .6rem .9rem; margin: 1rem 0; width: 100%; }
+  #status { color: var(--muted); font-size: .9rem; min-height: 1.4rem; }
+  /* The transcript matches the staff dashboard's: a card of turns, agent left, caller right. */
+  #transcript { flex: 1; min-width: 0; text-align: left; background: var(--card);
+                border: 1px solid var(--line); border-radius: 1.5rem; padding: 1.2rem 1.4rem;
+                position: sticky; top: 1.5rem; max-height: calc(100vh - 3rem); overflow-y: auto; }
+  #transcript .empty { color: var(--muted); margin: 0; }
+  @media (max-width: 52rem) {
+    main.live { flex-direction: column; align-items: stretch; }
+    .call { flex-basis: auto; min-height: 0; align-self: center; width: 100%; max-width: 26rem; }
+    #transcript { position: static; max-height: none; }
+  }
+  #transcript h2 { margin: 0 0 .6rem; font-size: 1.15rem; font-weight: 600; }
+  .turn { padding: 10px 14px; margin: 8px 0; border-radius: 14px; background: #3a3b3d;
+          overflow-wrap: anywhere; }
+  .turn.agent { background: #3a4238; margin-right: 12%; }
+  .turn.caller { margin-left: 12%; }
+  .turn .who { font-size: .75rem; font-weight: 700; letter-spacing: .06em;
+               text-transform: uppercase; color: var(--muted); }
+  .turn.agent .who { color: var(--green); }
+  .fine { color: var(--muted); font-size: .85rem; margin-top: auto; padding-top: 1.5rem; }
+</style>
+</head>
+<body>
+<main id="page">
+  <div class="call">
+  <div class="brand">
+    <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path fill="#66cc00"
+      d="M20 3C9 3 4 9 4 15c0 1.2.3 2.3.8 3.2L3 21l2 .5 1.5-2.4C7.5 19.7 8.7 20 10 20c7 0 10-7 10-17z"/></svg>
+    Demo dental clinic
+  </div>
+  <div class="tag">AI RECEPTIONIST</div>
+  <p class="intro" id="intro">Press start to talk to the clinic's AI receptionist. Allow
+     microphone access when asked.</p>
+  <div class="orb idle" id="orb" aria-hidden="true"><i></i><i></i><i></i>
+    <b><span></span><span></span><span></span><span></span><span></span></b></div>
+  <h1 id="state">Ready</h1>
+  <div id="clock"></div>
+  <div class="caption" id="caption" hidden>
+    <h2>RECEPTIONIST</h2><p id="captionText"></p>
+  </div>
+  <p id="notice" role="alert" hidden></p>
+  <div class="controls">
+    <button id="mute" type="button" aria-label="Mute microphone" hidden>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6"
+        height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+    <button id="toggle" type="button">Start call</button>
+  </div>
+  <div id="status" role="status">Not connected.</div>
+  <p class="fine">You are speaking with an AI receptionist. This call may be recorded to help us
+     book your visit. Say "talk to a person" at any time to be handed over. You can interrupt
+     the agent whenever you like.</p>
+  </div>
+  <section id="transcript" hidden><h2>Transcript</h2>
+    <p class="empty" id="empty">The conversation will appear here.</p>
+    <div id="log" aria-live="polite"></div></section>
+</main>
+<!-- Pinned: livekit-client 2.23.0 (jsDelivr). -->
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.23.0/dist/livekit-client.umd.js"></script>
+<script>
+(() => {
+  const { Room, RoomEvent, Track } = LivekitClient;
+  const button = document.getElementById("toggle");
+  const status = document.getElementById("status");
+  const log = document.getElementById("log");
+  const transcript = document.getElementById("transcript");
+  const empty = document.getElementById("empty");
+  const page = document.getElementById("page");
+  const notice = document.getElementById("notice");
+  const orb = document.getElementById("orb");
+  const stateEl = document.getElementById("state");
+  const clock = document.getElementById("clock");
+  const caption = document.getElementById("caption");
+  const captionText = document.getElementById("captionText");
+  const muteBtn = document.getElementById("mute");
+  const intro = document.getElementById("intro");
+  let timer = null;
+  let startedAt = 0;
+  let muted = false;
+
+  const setState = (name, label) => { orb.className = "orb " + name; stateEl.textContent = label; };
+  const tick = () => {
+    const s = Math.floor((Date.now() - startedAt) / 1000);
+    clock.textContent = String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+  };
+  let room = null;
+  let audioEls = [];
+
+  const setStatus = (text) => { status.textContent = text; };
+
+  async function start() {
+    button.disabled = true;
+    setStatus("Connecting...");
+    setState("listening", "Connecting");
+    try {
+      const res = await fetch("/token", { method: "POST" });
+      if (res.status === 429) {
+        // A cap was hit (this visitor's daily Calls, this network's, or the whole demo's).
+        // Starting stays disabled until the page is reloaded, and the reason is shown.
+        const body = await res.json().catch(() => ({}));
+        notice.textContent = body.message || "The demo is at its daily limit. Please come back tomorrow.";
+        notice.hidden = false;
+        button.disabled = true;
+        setState("idle", "Unavailable");
+        setStatus("Not connected.");
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "token endpoint returned " + res.status);
+      }
+      const { url, token } = await res.json();
+      room = new Room({ audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true } });
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === Track.Kind.Audio) {
+          const el = track.attach();  // plays the agent's voice
+          document.body.appendChild(el);
+          audioEls.push(el);
+        }
+      });
+      room.on(RoomEvent.TranscriptionReceived, (segments, participant) => {
+        for (const s of segments) {
+          if (!s.final) continue;
+          const agent = participant && !participant.isLocal;
+          const turn = document.createElement("div");
+          turn.className = "turn " + (agent ? "agent" : "caller");
+          const who = document.createElement("div");
+          who.className = "who";
+          who.textContent = agent ? "agent" : "caller";
+          const text = document.createElement("span");
+          text.textContent = s.text;
+          turn.append(who, text);
+          log.appendChild(turn);
+          empty.hidden = true;
+          turn.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          if (agent) { captionText.textContent = s.text; caption.hidden = false; }
+        }
+      });
+      room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        const agentTalking = speakers.some((p) => !p.isLocal);
+        if (agentTalking) setState("speaking", "Speaking");
+        else setState("listening", "Listening");
+      });
+      // Also fires when the agent ends the Call at the time limit, after saying so.
+      room.on(RoomEvent.Disconnected, () => { cleanup(); setStatus("Call ended."); });
+      await room.connect(url, token);
+      await room.localParticipant.setMicrophoneEnabled(true);
+      await room.startAudio();
+      button.textContent = "End call";
+      button.className = "stop";
+      button.disabled = false;
+      muteBtn.hidden = false;
+      intro.hidden = true;
+      log.replaceChildren();
+      empty.hidden = false;
+      transcript.hidden = false;
+      page.classList.add("live");
+      startedAt = Date.now();
+      tick();
+      timer = setInterval(tick, 1000);
+      setState("listening", "Listening");
+      setStatus("Connected. The agent will greet you.");
+    } catch (err) {
+      setStatus("Could not start the call: " + err.message);
+      cleanup();
+    }
+  }
+
+  function cleanup() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    muted = false;
+    muteBtn.className = "";
+    muteBtn.hidden = true;
+    setState("idle", "Ready");
+    audioEls.forEach((el) => el.remove());
+    audioEls = [];
+    room = null;
+    button.textContent = "Start call";
+    button.className = "";
+    button.disabled = false;
+  }
+
+  async function end() {
+    button.disabled = true;
+    if (room) await room.disconnect();
+    cleanup();
+    setStatus("Call ended.");
+  }
+
+  muteBtn.addEventListener("click", async () => {
+    if (!room) return;
+    muted = !muted;
+    await room.localParticipant.setMicrophoneEnabled(!muted);
+    muteBtn.className = muted ? "on" : "";
+    setStatus(muted ? "Microphone muted." : "Connected.");
+  });
+
+  button.addEventListener("click", () => (room ? end() : start()));
+})();
+</script>
+</body>
+</html>

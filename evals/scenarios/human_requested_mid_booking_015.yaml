@@ -1,0 +1,30 @@
+id: human_requested_mid_booking_015
+description: "Caller asks for a person while a Hold is in place and the clinic is open: a Handoff with a reason is made, nothing is confirmed, and the Hold is released at once (not left to lapse)"
+persona: hostile
+category: escalation
+clinic: open
+caller_goal: "You ask for a cleaning on Tuesday and take the first time, then get impatient and say you want to speak to a real person."
+turns:
+  - "A cleaning on Tuesday"
+  - "The first one. Neha Kapoor, +91 98450 22222"
+  - "This is taking forever. Let me speak to a real person."
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: Tuesday}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}."
+  - tool: record_patient
+    args: {name: Neha Kapoor, phone: "+91 98450 22222"}
+  - tool: place_hold
+    args: {option: 1}
+  - say: "I've held that for you for a few minutes."
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: handoff
+    escalation_reason_recorded: true
+    live_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+    - escalation_without_reason
+  max_turns: 3

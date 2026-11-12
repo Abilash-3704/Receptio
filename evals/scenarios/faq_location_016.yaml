@@ -1,0 +1,18 @@
+id: faq_location_016
+description: FAQ, location.
+persona: curious_caller
+category: faq
+turns:
+  - "Where exactly are you, and is there parking?"
+agent_script:
+  - tool: search_faq
+    args: {question: "where are you located, parking"}
+  - say: "We are at 14, 3rd Cross, 12th Main, Indiranagar, Bengaluru 560038, near the Indiranagar Metro station. Paid parking is available on the street outside."
+expected:
+  final_state:
+    appointment_confirmed: false
+    existing_appointments_intact: true
+  must_not:
+    - invented_time
+    - invented_price
+  max_turns: 1

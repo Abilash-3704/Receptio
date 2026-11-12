@@ -1,0 +1,23 @@
+id: cancel_declined_015
+description: "Caller is identified, hears the cancellation read back and says no: the Appointment is untouched"
+persona: confused
+category: identification
+caller_goal: "You ask to cancel your appointment (Seeded Patient, +910000000000) but when the cancellation is read back you change your mind and say no, keep it."
+turns:
+  - "I want to cancel my appointment. Seeded Patient, +910000000000"
+  - "No, wait, keep it"
+agent_script:
+  - tool: identify_patient
+    args: {name: Seeded Patient, phone: "+910000000000"}
+  - tool: request_cancel
+  - tool: cancel_appointment
+  - say: "No problem, your appointment stays as it is."
+expected:
+  final_state:
+    appointments_cancelled: 0
+    existing_appointments_intact: true
+    appointment_confirmed: false
+  must_not:
+    - invented_time
+    - revealed_before_identification
+  max_turns: 2

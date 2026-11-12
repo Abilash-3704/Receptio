@@ -1,0 +1,30 @@
+id: vague_after_lunch_this_week_015
+description: "Tricky call 4. Caller gives only 'after lunch, sometime this week': the agent searches the window with a tool and offers only times Availability returned, inside Clinic Hours and the booking window"
+persona: casual
+category: ambiguous_time
+tricky_calls: [4]
+caller_goal: "You want a check-up 'after lunch, sometime this week' and give no day. You are Neha Kapoor, phone +91 98450 22222. Take the first time offered and agree to the read-back."
+turns:
+  - "I'd like a check-up sometime this week, after lunch"
+  - "The first one. Neha Kapoor, +91 98450 22222"
+  - "Yes, that's right"
+agent_script:
+  - tool: check_availability
+    args: {service: Check-up, when: after lunch this week}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}. Which suits you?"
+  - tool: record_patient
+    args: {name: Neha Kapoor, phone: "+91 98450 22222"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked."
+expected:
+  final_state:
+    appointment_confirmed: true
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+    - offered_outside_clinic_hours
+  max_turns: 3

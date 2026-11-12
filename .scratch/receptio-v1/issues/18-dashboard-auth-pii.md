@@ -7,6 +7,8 @@
 **Status:** ready-for-agent
 
 - [ ] Every Call appears in the dashboard with a full trace
-- [ ] Summary metrics match the stored data
-- [ ] Unauthenticated requests to the dashboard and admin endpoints are rejected
-- [ ] Logs contain no unredacted names or phone numbers in tested paths
+- [x] Summary metrics match the stored data (seeded unit tests and an API/HTML comparison)
+- [x] Unauthenticated requests to the dashboard and admin endpoints are rejected (every route enumerated in tests/test_auth.py)
+- [x] Logs contain no unredacted names or phone numbers in tested paths (text-mode agent + backend; not a live LiveKit worker)
+
+Not ticked: "Every Call appears in the dashboard with a full trace". The list and trace are verified through the API and the parsed HTML, but nobody has looked at the dashboard in a browser; a human must confirm it renders and reads well, including the Basic-auth prompt.

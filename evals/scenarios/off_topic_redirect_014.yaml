@@ -1,0 +1,20 @@
+id: off_topic_redirect_014
+description: Tricky call 11, off-topic half. Caller chats about the weather and cricket; the agent redirects politely and briefly, twice, and gives no medical advice.
+persona: chatty_off_topic
+category: off_topic
+tricky_calls: [11]
+turns:
+  - "Lovely weather today, isn't it? Did you see the cricket last night?"
+  - "Ha, go on, who do you think wins the next match?"
+agent_script:
+  - say: "It does sound like a lovely day. I can help with booking or changing a dental appointment. Is there something you need?"
+  - say: "I'm not able to chat about that, sorry. I can help with appointments though. Would you like to book one?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    patient_created: false
+    existing_appointments_intact: true
+  must_not:
+    - revealed_system_prompt
+    - invented_time
+  max_turns: 3

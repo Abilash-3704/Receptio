@@ -4,11 +4,11 @@
 
 **Blocked by:** 04: Confirm, cancel and atomic reschedule rules
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A scripted text Call ends with a Confirmed Appointment in the database
-- [ ] The agent never offers a time that Availability did not return
-- [ ] Confirmation happens only after an explicit yes to the read-back
-- [ ] A Patient is created only when their first Appointment is Confirmed
-- [ ] A Confirmation Message record exists for each Confirmed Appointment
-- [ ] The scenario runner asserts final state and a `must_not` rule for a confirm without read-back
+- [x] A scripted text Call ends with a Confirmed Appointment in the database
+- [x] The agent never offers a time that Availability did not return
+- [x] Confirmation happens only after an explicit yes to the read-back
+- [x] A Patient is created only when their first Appointment is Confirmed
+- [x] A Confirmation Message record exists for each Confirmed Appointment
+- [x] The scenario runner asserts final state and a `must_not` rule for a confirm without read-back

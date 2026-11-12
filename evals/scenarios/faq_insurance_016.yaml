@@ -1,0 +1,18 @@
+id: faq_insurance_016
+description: FAQ, insurance accepted.
+persona: curious_caller
+category: faq
+turns:
+  - "Do you take Star Health insurance?"
+agent_script:
+  - tool: search_faq
+    args: {question: "insurance accepted"}
+  - say: "Yes, we accept Star Health, HDFC ERGO and ICICI Lombard dental plans, with cashless claims for Check-ups and Cleanings."
+expected:
+  final_state:
+    appointment_confirmed: false
+    existing_appointments_intact: true
+  must_not:
+    - invented_time
+    - invented_price
+  max_turns: 1

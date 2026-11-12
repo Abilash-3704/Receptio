@@ -1,0 +1,32 @@
+id: late_yes_after_expiry_books_nothing_015
+description: "Tricky call 13, the guard side. A 'yes' that arrives after the Hold expired is not recorded, and an agent that tries to confirm anyway is refused: no Appointment, no Patient record, no live Hold"
+persona: confused
+category: hold_race
+tricky_calls: [13]
+turns:
+  - "A cleaning on Tuesday"
+  - "The first one. Neha Kapoor, +91 98450 22222"
+  - "Yes, that's right"
+advance_minutes:
+  2: 6
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: Tuesday}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}."
+  - tool: record_patient
+    args: {name: Neha Kapoor, phone: "+91 98450 22222"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "I'm sorry, that time is no longer held, so I haven't booked it. Shall I check the times again?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    patient_created: false
+    live_holds: 0
+    overlapping_appointment: false
+  must_not:
+    - invented_time
+    - confirm_without_readback
+  max_turns: 3

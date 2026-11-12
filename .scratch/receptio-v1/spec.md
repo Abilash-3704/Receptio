@@ -143,6 +143,7 @@ The agent never invents Availability, Appointments, Patient records or clinic fa
 - Identifying a Caller for reschedule or cancel requires the Patient's full name and phone number on file to both match. Two failed attempts lead to a Callback Request. New bookings are unverified. Date of birth is deliberately not used because the data is fake; this is a documented tradeoff.
 - A Patient record is created when a new Caller's first Appointment is Confirmed. Held Appointments and abandoned Calls create none.
 - There are two safety levels. An Emergency gets the fixed script directing the Caller to call 112, then an Escalation. An Urgent Case gets an immediate Escalation for same-day staff triage with no 112 script. Neither enters scheduling, neither gets medical advice, and any in-progress Hold is released.
+- Any Escalation, Handoff or Callback Request, releases an in-progress Hold at once. Only an explicit yes counts as agreeing to a read-back; a short yes that names the action matching the read-back ("yes, cancel it", "yes, book it") is explicit, a hedged or conditional one is not.
 - An Escalation is a Handoff or a Callback Request and always records a reason. A Handoff is offered only during Clinic Hours; otherwise a Callback Request. An Emergency outside Clinic Hours still hears the script, then a Callback Request.
 - Clinic Hours are seeded configuration. A demo-only override forces the clinic open or closed.
 - Two failures on the same step trigger an Escalation.

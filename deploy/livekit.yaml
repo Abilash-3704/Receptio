@@ -1,0 +1,11 @@
+# Self-hosted LiveKit server for local development (docker compose). Used with `--dev`, which
+# supplies LiveKit's documented dev API key and secret (devkey / secret): not secrets, local only.
+# Never expose this server publicly with the dev keys.
+port: 7880
+rtc:
+  tcp_port: 7881
+  # One UDP port for all media, so a single published port is enough without host networking.
+  udp_port: 7882
+  use_external_ip: false
+  # The address the browser reaches the published ports on (the host, from a local browser).
+  node_ip: 127.0.0.1

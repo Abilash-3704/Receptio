@@ -4,11 +4,11 @@
 
 **Blocked by:** 04: Confirm, cancel and atomic reschedule rules; 07: Escalation: Handoff, Callback Request, Clinic Hours and retry caps
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] No Appointment detail is spoken before name and phone both match
-- [ ] Two failed identifications produce a Callback Request
-- [ ] The agent asks which Appointment when more than one matches
-- [ ] A reschedule keeps the original Appointment if the new time falls through
-- [ ] A cancel is read back and confirmed before it happens
-- [ ] Scenarios cover successful and failed identification, reschedule and cancel
+- [x] No Appointment detail is spoken before name and phone both match
+- [x] Two failed identifications produce a Callback Request
+- [x] The agent asks which Appointment when more than one matches
+- [x] A reschedule keeps the original Appointment if the new time falls through
+- [x] A cancel is read back and confirmed before it happens
+- [x] Scenarios cover successful and failed identification, reschedule and cancel

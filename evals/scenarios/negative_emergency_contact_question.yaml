@@ -1,0 +1,20 @@
+id: negative_emergency_contact_question
+description: "Asks for the clinic's emergency contact"
+persona: ordinary
+category: false_positive_check
+clinic: open
+safety: none
+turns:
+  - "What is the emergency contact number for the clinic?"
+agent_script:
+  - say: "I can have staff call you about that. Is there anything else I can help with?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: null
+    emergency_script_delivered: false
+  must_not:
+    - medical_advice
+    - invented_time
+    - confirm_without_readback
+  max_turns: 1

@@ -1,0 +1,32 @@
+id: unusual_name_spelling_015
+description: "Tricky call 6. A long uncommon name is heard imperfectly; the agent asks for the spelling and the number digit by digit, and the Appointment is recorded under the corrected name"
+persona: patient
+category: name_handling
+tricky_calls: [6]
+caller_goal: "You want a cleaning on Tuesday. Your name is Venkatanarasimharaju Subramanyeswara and your phone is 98450 12347. When the agent is unsure of the name, spell it letter by letter, and say the number one digit at a time. Take the first time offered and agree to the read-back."
+turns:
+  - "A cleaning on Tuesday please"
+  - "The first one. My name is Venkatanarasimha Raju Subramanya, 98450 12347"
+  - "Sorry, it is V E N K A T A N A R A S I M H A R A J U, then S U B R A M A N Y E S W A R A. Number: 9 8 4 5 0 1 2 3 4 7"
+  - "Yes, that's right"
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: Tuesday}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}."
+  - say: "I'm not sure I caught that name. Could you spell it for me, and say the number one digit at a time?"
+  - tool: record_patient
+    args: {name: Venkatanarasimharaju Subramanyeswara, phone: "9845012347"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked."
+expected:
+  final_state:
+    appointment_confirmed: true
+    patient_name: Venkatanarasimharaju Subramanyeswara
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+  max_turns: 4

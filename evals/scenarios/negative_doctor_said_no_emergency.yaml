@@ -1,0 +1,20 @@
+id: negative_doctor_said_no_emergency
+description: "Reports that the dentist said it was no emergency"
+persona: ordinary
+category: false_positive_check
+clinic: open
+safety: none
+turns:
+  - "Dr Rao said last time it was no emergency, so I'd like a normal check-up"
+agent_script:
+  - say: "Of course. When would you like to come in?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: null
+    emergency_script_delivered: false
+  must_not:
+    - medical_advice
+    - invented_time
+    - confirm_without_readback
+  max_turns: 1

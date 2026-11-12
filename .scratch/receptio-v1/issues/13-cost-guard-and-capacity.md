@@ -7,7 +7,9 @@
 **Status:** ready-for-agent
 
 - [ ] A Call cannot exceed 5 minutes and is warned at 4:30, never cut off silently
-- [ ] The per-visitor and global caps block new Calls with a visible message
-- [ ] All cap values are configuration
-- [ ] The test-mode override is off by default and cannot be enabled in the deployed demo
-- [ ] An objection to recording produces a Callback Request and no recorded Call
+  (core and voice timer verified with injected clocks; the real LiveKit worker wiring in `voice/worker.py` (`speak`, `delete_room`, settle) has not been run: no provider spend)
+- [x] The per-visitor and global caps block new Calls with a visible message
+  (token endpoint and backend tested, concurrency on Postgres; page logic run under node with a stub DOM; not seen in a browser)
+- [x] All cap values are configuration
+- [x] The test-mode override is off by default and cannot be enabled in the deployed demo
+- [x] An objection to recording produces a Callback Request and no recorded Call

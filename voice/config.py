@@ -1,0 +1,68 @@
+from pydantic import Field, SecretStr, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+MIN_LIVEKIT_SECRET_LENGTH = 32
+
+
+class VoiceSettings(BaseSettings):
+    """Voice pipeline configuration, read from the environment (see .env.example)."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # LiveKit server. The defaults are LiveKit's documented `--dev` credentials: not secrets, and
+    # only valid against a local dev server. Never use them in a public deployment.
+    livekit_url: str = "ws://localhost:7880"
+    # What the browser dials, when it differs from what the agent worker dials (Compose).
+    livekit_public_url: str | None = None
+    livekit_api_key: str = "devkey"
+    livekit_api_secret: str = "secret"
+
+    # The worker's own health/metrics HTTP port (LiveKit's default is 8081 in production mode).
+    worker_port: int = 8081
+
+    deepgram_api_key: SecretStr | None = None
+    cartesia_api_key: SecretStr | None = None
+    cartesia_voice: str = "f786b574-daa5-4673-aa0c-cbe3e8534c02"  # the plugin's default voice
+    asr_model: str = "nova-3"
+
+    # Turn-taking. 0.5 s is LiveKit's default; lowering it trades latency for cut-offs.
+    min_endpointing_delay: float = 0.5
+    # One JSON line per Caller turn (voice/timing.py); summarise with scripts/latency_summary.
+    turn_log_path: str = "logs/voice-turns.jsonl"
+
+    # The clinic backend, which owns the cost guard's counters: the token endpoint asks it to
+    # admit every Call before issuing a token, and the worker reports each Call's length to it.
+    backend_url: str = "http://localhost:8000"
+    backend_timeout_seconds: float = 5.0
+    # How many reverse proxies in front of the web service append to X-Forwarded-For. 0 (the
+    # default) ignores the header entirely and uses the connection's own address, which a client
+    # cannot choose. Set it to the real number only behind proxies you run.
+    trusted_proxy_hops: int = 0
+    # Abuse throttle on POST /token, per client address (voice/web.py; same address rules as the
+    # cost guard). Requests over it get a 429 before the cost guard is asked, so they use up none
+    # of anyone's daily allowance. A person clicking Start does not come near 10 a minute.
+    token_requests_per_minute_per_ip: int = Field(default=10, ge=1)
+
+    # Set in every deployed environment (the same flag the backend reads). Makes the LiveKit
+    # development credentials impossible.
+    deployed_environment: bool = False
+
+    @model_validator(mode="after")
+    def _no_development_livekit_credentials_when_deployed(self) -> "VoiceSettings":
+        if not self.deployed_environment:
+            return self
+        if (
+            self.livekit_api_key in ("", "devkey")
+            or self.livekit_api_secret in ("", "secret")
+            or len(self.livekit_api_secret) < MIN_LIVEKIT_SECRET_LENGTH
+        ):
+            raise ValueError(
+                "LIVEKIT_API_KEY / LIVEKIT_API_SECRET are LiveKit's development credentials or "
+                f"shorter than {MIN_LIVEKIT_SECRET_LENGTH} characters, which DEPLOYED_ENVIRONMENT "
+                "refuses: generate real ones"
+            )
+        return self
+
+    @property
+    def browser_url(self) -> str:
+        return self.livekit_public_url or self.livekit_url

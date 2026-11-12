@@ -1,0 +1,23 @@
+id: faq_unknown_callback_016
+description: FAQ the knowledge base cannot answer. The agent (in code) says it does not have it and offers a Callback Request; the Caller accepts and gives a number, and a Callback Request with the question as its reason is recorded.
+persona: curious_caller
+category: faq
+clinic: closed
+turns:
+  - "Do you do teeth whitening for pets?"
+  - "Yes please, call me back"
+  - "98450 12345"
+agent_script:
+  - tool: search_faq
+    args: {question: "teeth whitening for pets"}
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: callback_request
+    escalation_reason_recorded: true
+    escalation_phone_recorded: true
+  must_not:
+    - invented_price
+    - escalation_without_reason
+    - handoff_when_closed
+  max_turns: 3

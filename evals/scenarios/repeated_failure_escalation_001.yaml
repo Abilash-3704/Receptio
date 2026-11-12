@@ -1,0 +1,26 @@
+id: repeated_failure_escalation_001
+description: The same step fails twice (the Caller picks a time that was never offered); the agent stops retrying and starts a Handoff with a reason
+persona: confused
+category: escalation
+clinic: open
+turns:
+  - "A cleaning tomorrow please"
+  - "The ninth one"
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, date: "2026-11-03"}
+  - say: "I can do {offered[0]}, {offered[1]} or {offered[2]}. Which suits you?"
+  - tool: place_hold
+    args: {option: 9}
+  - tool: place_hold
+    args: {option: 9}
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: handoff
+    escalation_reason_recorded: true
+  must_not:
+    - invented_time
+    - confirm_without_readback
+    - escalation_without_reason
+  max_turns: 2

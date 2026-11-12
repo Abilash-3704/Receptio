@@ -1,0 +1,29 @@
+id: angry_still_books_015
+description: "Angry Caller who does not ask for a human and whose request can be met: anger alone is not an escalation, and the booking is completed calmly"
+persona: hostile
+category: angry
+caller_goal: "You are furious that nobody picked up earlier and you complain, but you do want a check-up on Tuesday. You are Karan Malhotra, phone +91 98450 44444. Take the first time offered and agree to the read-back."
+turns:
+  - "I've been calling all morning and nobody picks up! This is a disgrace. I need a check-up on Tuesday."
+  - "Fine, the first one. Karan Malhotra, +91 98450 44444. Hurry up."
+  - "Yes. Yes, that's right."
+agent_script:
+  - tool: check_availability
+    args: {service: Check-up, when: Tuesday}
+  - say: "I'm sorry about the wait. I can do {offered[0]}, {offered[1]} or {offered[2]}."
+  - tool: record_patient
+    args: {name: Karan Malhotra, phone: "+91 98450 44444"}
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked. Thank you for your patience."
+expected:
+  final_state:
+    appointment_confirmed: true
+    escalation_kind: null
+    unreleased_holds: 0
+  must_not:
+    - invented_time
+    - confirm_without_readback
+  max_turns: 3

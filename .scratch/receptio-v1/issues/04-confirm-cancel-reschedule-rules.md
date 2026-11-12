@@ -4,11 +4,11 @@
 
 **Blocked by:** 03: Availability and Holds in the clinic backend
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Confirm is rejected without a recorded read-back or with an expired Hold
-- [ ] A retried confirm with the same idempotency key never creates a second Appointment
-- [ ] Concurrent confirms for the same time produce exactly one Appointment
-- [ ] Overlapping Appointments for one Patient are rejected regardless of Provider
-- [ ] A failed reschedule leaves the original Appointment Confirmed
-- [ ] Deterministic and concurrency tests prove all of the above with no LLM involved
+- [x] Confirm is rejected without a recorded read-back or with an expired Hold
+- [x] A retried confirm with the same idempotency key never creates a second Appointment
+- [x] Concurrent confirms for the same time produce exactly one Appointment
+- [x] Overlapping Appointments for one Patient are rejected regardless of Provider
+- [x] A failed reschedule leaves the original Appointment Confirmed
+- [x] Deterministic and concurrency tests prove all of the above with no LLM involved

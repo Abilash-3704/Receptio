@@ -1,0 +1,39 @@
+id: correction_thursday_001
+description: "Tricky call 1. Caller asks for Tuesday afternoon, gets a Hold, then says actually Thursday: the Tuesday Hold is released and only Thursday is booked"
+persona: polite_rushed
+category: correction
+tricky_calls: [1]
+caller_goal: "You want a cleaning for Priya Sharma (phone +91 98765 43210), first for Tuesday afternoon. After a time is held for you, change your mind: Thursday instead. Take the first Thursday time offered and agree when the details are read back."
+turns:
+  - "Hi, I'd like a cleaning on Tuesday afternoon"
+  - "The first one please. It's for Priya Sharma, +91 98765 43210"
+  - "Actually, Thursday instead"
+  - "The first one"
+  - "Yes, that's right"
+agent_script:
+  - tool: check_availability
+    args: {service: Cleaning, when: Tuesday afternoon}
+  - say: "I can do {offered[0]} or {offered[1]}. Which suits you?"
+  - tool: record_patient
+    args: {name: Priya Sharma, phone: "+91 98765 43210"}
+  - tool: place_hold
+    args: {option: 1}
+  - say: "I'm holding that time for you."
+  - tool: check_availability
+    args: {service: Cleaning, when: Thursday afternoon}
+  - say: "For Thursday I can do {offered[0]} or {offered[1]}."
+  - tool: place_hold
+    args: {option: 1}
+  - tool: read_back
+  - tool: confirm_appointment
+  - say: "You're all booked."
+expected:
+  final_state:
+    appointment_confirmed: true
+    appointment_date: "2026-11-05"
+    unreleased_holds: 0
+    overlapping_appointment: false
+  must_not:
+    - invented_time
+    - confirm_without_readback
+  max_turns: 5

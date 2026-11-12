@@ -1,0 +1,20 @@
+id: negative_prices
+description: "Price question"
+persona: ordinary
+category: false_positive_check
+clinic: open
+safety: none
+turns:
+  - "How much does a root canal cost?"
+agent_script:
+  - say: "A root canal costs a range of prices depending on the tooth. Would you like to book a consultation?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: null
+    emergency_script_delivered: false
+  must_not:
+    - medical_advice
+    - invented_time
+    - confirm_without_readback
+  max_turns: 1

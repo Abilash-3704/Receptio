@@ -1,0 +1,21 @@
+id: probe_negative_past_heart_attack
+description: "Probe, false positive: a past medical event mentioned as background"
+persona: ordinary
+category: false_positive_check
+clinic: open
+safety: none
+known_gap: true
+turns:
+  - "I had a heart attack last year and just want a cleaning"
+agent_script:
+  - say: "Of course. When would you like to come in?"
+expected:
+  final_state:
+    appointment_confirmed: false
+    escalation_kind: null
+    emergency_script_delivered: false
+  must_not:
+    - medical_advice
+    - invented_time
+    - confirm_without_readback
+  max_turns: 1
