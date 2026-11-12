@@ -1,0 +1,128 @@
+# Single-VM deployment: run on its own, not as an override of docker-compose.yml.
+#   docker compose -f docker-compose.prod.yml up -d --build
+# Differences from docker-compose.yml: no self-hosted LiveKit (use LiveKit Cloud; set LIVEKIT_URL,
+# LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env), Caddy terminates HTTPS and is the only service
+# with published ports, and every service restarts unless stopped. See docs/deploy.md.
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  db:
+    <<: *restart
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-receptio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (openssl rand -hex 24)}
+      POSTGRES_DB: ${POSTGRES_DB:-receptio}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-receptio}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    <<: *restart
+    build: .
+    command: ["uvicorn", "backend.app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-receptio}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-receptio}
+      DATABASE_CONNECT_TIMEOUT_SECONDS: ${DATABASE_CONNECT_TIMEOUT_SECONDS:-5}
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:?set BACKEND_SERVICE_TOKEN in .env (openssl rand -hex 24)}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?set DASHBOARD_PASSWORD in .env (openssl rand -hex 24)}
+      CALL_MAX_SECONDS: ${CALL_MAX_SECONDS:-300}
+      VISITOR_CALLS_PER_DAY: ${VISITOR_CALLS_PER_DAY:-3}
+      IP_CALLS_PER_DAY: ${IP_CALLS_PER_DAY:-10}
+      GLOBAL_MINUTES_PER_DAY: ${GLOBAL_MINUTES_PER_DAY:-120}
+      CAPS_TEST_MODE: "false"
+      DEPLOYED_ENVIRONMENT: "true"
+      DEMO_CONTROLS_ENABLED: "false"
+      ADMISSION_REQUESTS_PER_MINUTE_PER_IP: ${ADMISSION_REQUESTS_PER_MINUTE_PER_IP:-30}
+      IDENTITY_FAILURES_PER_NAME: ${IDENTITY_FAILURES_PER_NAME:-5}
+      IDENTITY_FAILURES_PER_PHONE: ${IDENTITY_FAILURES_PER_PHONE:-5}
+      IDENTITY_FAILURES_GLOBAL: ${IDENTITY_FAILURES_GLOBAL:-30}
+      IDENTITY_FAILURE_WINDOW_SECONDS: ${IDENTITY_FAILURE_WINDOW_SECONDS:-600}
+      AUTH_FAILURES_PER_IP: ${AUTH_FAILURES_PER_IP:-10}
+      AUTH_FAILURE_WINDOW_SECONDS: ${AUTH_FAILURE_WINDOW_SECONDS:-600}
+      # One proxy (Caddy) sits in front.
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  agent:
+    <<: *restart
+    build: .
+    command: ["python", "-m", "agent.main"]
+    environment:
+      BACKEND_URL: http://backend:8000
+      BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:?set BACKEND_SERVICE_TOKEN in .env (openssl rand -hex 24)}
+    depends_on:
+      - backend
+
+  voice-agent:
+    <<: *restart
+    build: .
+    command: ["python", "-m", "voice.worker", "start"]
+    environment:
+      BACKEND_URL: http://backend:8000
+      BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
+      BACKEND_SERVICE_TOKEN: ${BACKEND_SERVICE_TOKEN:?set BACKEND_SERVICE_TOKEN in .env (openssl rand -hex 24)}
+      LIVEKIT_URL: ${LIVEKIT_URL:?set LIVEKIT_URL in .env (wss://<project>.livekit.cloud)}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in .env}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:?set DEEPGRAM_API_KEY in .env}
+      CARTESIA_API_KEY: ${CARTESIA_API_KEY:?set CARTESIA_API_KEY in .env}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
+      LLM_MODEL: ${LLM_MODEL:-claude-sonnet-5-5}
+      CALL_MAX_SECONDS: ${CALL_MAX_SECONDS:-300}
+      CALL_WARNING_SECONDS: ${CALL_WARNING_SECONDS:-270}
+      TURN_LOG_PATH: /app/logs/voice-turns.jsonl
+      DEPLOYED_ENVIRONMENT: "true"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - backend
+
+  web:
+    <<: *restart
+    build: .
+    command: ["uvicorn", "voice.web:create_app", "--factory", "--host", "0.0.0.0", "--port", "8002"]
+    environment:
+      # Both the server-side URL and the one handed to browsers are the LiveKit Cloud address.
+      LIVEKIT_URL: ${LIVEKIT_URL:?set LIVEKIT_URL in .env (wss://<project>.livekit.cloud)}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in .env}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env}
+      BACKEND_URL: http://backend:8000
+      BACKEND_TIMEOUT_SECONDS: ${BACKEND_TIMEOUT_SECONDS:-5}
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+      TOKEN_REQUESTS_PER_MINUTE_PER_IP: ${TOKEN_REQUESTS_PER_MINUTE_PER_IP:-10}
+      DEPLOYED_ENVIRONMENT: "true"
+    depends_on:
+      - backend
+
+  caddy:
+    <<: *restart
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env (the public host name)}
+      STAFF_DOMAIN: ${STAFF_DOMAIN:?set STAFF_DOMAIN in .env (host name for the staff dashboard)}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+      - backend
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:

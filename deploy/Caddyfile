@@ -1,0 +1,11 @@
+# HTTPS for the single-VM deployment (docker-compose.prod.yml). Caddy gets and renews the
+# certificates itself; DOMAIN and STAFF_DOMAIN must already point at this machine.
+
+{$DOMAIN} {
+	reverse_proxy web:8002
+}
+
+# Staff dashboard and backend API (password protected by the backend).
+{$STAFF_DOMAIN} {
+	reverse_proxy backend:8000
+}

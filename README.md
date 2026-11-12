@@ -106,6 +106,8 @@ docker compose up --build     # adds livekit (:7880, 7881/tcp, 7882/udp), voice-
 open http://localhost:8002    # Start call, allow the microphone
 ```
 
+To put the demo on a public URL (one VM, LiveKit Cloud, HTTPS), see `docs/deploy.md`.
+
 Without Docker: run a LiveKit server (`livekit-server --dev`), the backend, `python -m voice.worker start` and `uvicorn voice.web:create_app --factory --port 8002`. Turn timings go to `logs/voice-turns.jsonl` (ignored by Git) and the worker's stdout. `WORKER_PORT` moves the worker's health port (default 8081) if it is taken.
 
 Design notes:
