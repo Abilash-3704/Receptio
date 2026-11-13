@@ -4,6 +4,12 @@ An AI voice receptionist for a fictional dental clinic in Bengaluru. Callers rea
 
 > Status: a Caller can book an Appointment in a text-mode Call (scripted LLM in tests). A voice loop (LiveKit, Deepgram, Claude, Cartesia) runs end to end with a synthetic Caller; the human mic and browser checks are listed under "Voice mode" and are not yet done.
 
+## Live demo
+
+**https://receptio-demo.duckdns.org** — press Start call, allow the microphone, and talk to the receptionist (Chrome or Firefox). Try "I'd like to book a check-up tomorrow morning."
+
+The demo is public and runs with spending caps: a Call lasts at most 5 minutes, each visitor gets 3 Calls a day, and the demo as a whole has a daily minute budget, so it may refuse new Calls once those are used up. Calls are not recorded; the transcript is stored for the staff dashboard, which is password protected. The deployment (one VM, Docker Compose, Caddy for HTTPS, LiveKit Cloud for audio) is described in `docs/deploy.md`.
+
 ## Quickstart
 
 ```
